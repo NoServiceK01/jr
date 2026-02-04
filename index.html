@@ -149,9 +149,9 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
+    // プロキシの定義
     const PROXIES = [
-        // キャッシュを避けるためにクエリパラメータを動的に生成
-        { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'json' },
+        { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'raw' },
         { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' }
     ];
 
@@ -175,19 +175,20 @@
 
     async function fetchHtml(url) {
         let lastErr;
-        // 毎回ランダムなプロキシから試行
         const shuffledProxies = [...PROXIES].sort(() => Math.random() - 0.5);
         
         for (const proxy of shuffledProxies) {
             try {
-                const res = await fetch(proxy.url(url), { cache: 'no-store' }); // ブラウザキャッシュも無効化
+                const fetchUrl = proxy.url(url);
+                const res = await fetch(fetchUrl, { cache: 'no-store' });
                 if (!res.ok) continue;
-                if (proxy.type === 'json') {
-                    const data = await res.json();
-                    if (data.contents) return data.contents;
-                } else {
-                    return await res.text();
-                }
+
+                // Shift-JISデコード処理（GitHub Pagesでの文字化け防止）
+                const buffer = await res.arrayBuffer();
+                const decoder = new TextDecoder('shift-jis');
+                const text = decoder.decode(buffer);
+                
+                if (text && text.length > 100) return text;
             } catch (e) {
                 lastErr = e;
             }
@@ -201,8 +202,6 @@
         
         try {
             const htmlText = await fetchHtml(TARGET_URL);
-            if (!htmlText || htmlText.length < 100) throw new Error("Invalid data");
-
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
@@ -230,17 +229,17 @@
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
                     
-                    const container = doc.createElement('div');
+                    const container = document.createElement('div');
                     container.className = 'train-container';
 
                     if (text && text !== trainNo) {
-                        const textBox = doc.createElement('div');
+                        const textBox = document.createElement('div');
                         textBox.className = 'official-text';
                         textBox.innerText = text;
                         container.appendChild(textBox);
                     }
                     if (img) container.appendChild(img);
-                    const noElement = doc.createElement('span');
+                    const noElement = document.createElement('span');
                     noElement.className = 'train-no-text';
                     noElement.innerText = trainNo;
                     container.appendChild(noElement);
@@ -265,7 +264,6 @@
                 statusEl.style.display = 'none';
                 updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
                 
-                // 画像読み込み完了後のスケール調整
                 const imgs = viewArea.querySelectorAll('img');
                 let loaded = 0;
                 if (imgs.length === 0) updateScale();
@@ -284,7 +282,6 @@
     }
 
     loadOfficialPage();
-    // 30秒ごとに短縮して更新チェック
     setInterval(loadOfficialPage, 30000);
     window.addEventListener('resize', updateScale);
 </script>
