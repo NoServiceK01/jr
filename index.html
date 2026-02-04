@@ -230,17 +230,17 @@
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
                     
-                    const container = document.createElement('div');
+                    const container = doc.createElement('div');
                     container.className = 'train-container';
 
                     if (text && text !== trainNo) {
-                        const textBox = document.createElement('div');
+                        const textBox = doc.createElement('div');
                         textBox.className = 'official-text';
                         textBox.innerText = text;
                         container.appendChild(textBox);
                     }
                     if (img) container.appendChild(img);
-                    const noElement = document.createElement('span');
+                    const noElement = doc.createElement('span');
                     noElement.className = 'train-no-text';
                     noElement.innerText = trainNo;
                     container.appendChild(noElement);
@@ -284,7 +284,7 @@
     }
 
     loadOfficialPage();
-    // 30秒ごとに更新チェック
+    // 30秒ごとに短縮して更新チェック
     setInterval(loadOfficialPage, 30000);
     window.addEventListener('resize', updateScale);
 </script>
