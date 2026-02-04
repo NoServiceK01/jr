@@ -134,7 +134,7 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（強制更新モード）</span>
+    <span>筑肥線 列車位置情報（解析強化モード）</span>
     <span id="update-time">接続中...</span>
 </div>
 
@@ -149,10 +149,9 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // プロキシの定義
+    // 文字化け回避のため、できるだけ「生データ」を維持するプロキシを使用
     const PROXIES = [
-        { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'raw' },
-        { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' }
+        { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'raw' }
     ];
 
     function updateScale() {
@@ -175,21 +174,27 @@
 
     async function fetchHtml(url) {
         let lastErr;
-        const shuffledProxies = [...PROXIES].sort(() => Math.random() - 0.5);
         
-        for (const proxy of shuffledProxies) {
+        for (const proxy of PROXIES) {
             try {
                 const fetchUrl = proxy.url(url);
-                const res = await fetch(fetchUrl, { cache: 'no-store' });
+                const res = await fetch(fetchUrl);
                 if (!res.ok) continue;
 
-                // 文字化け対策：一旦バイナリ（ArrayBuffer）として受け取り、
-                // 日本語Windowsの標準である CP932 (windows-31j) で明示的にデコードする
+                // レスポンスをバイナリとして受け取る
                 const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('windows-31j');
-                const text = decoder.decode(buffer);
                 
-                // HTMLとして成立しているか最低限のチェック
+                // JR九州のサイトは Shift_JIS (正確には CP932 / Windows-31J)
+                // decoderを明示的に設定。fatal: falseにして、一部の不正文字で全体が壊れるのを防ぐ
+                const decoder = new TextDecoder('shift_jis', { fatal: false });
+                let text = decoder.decode(buffer);
+                
+                // もしShift_JISでデコードして<html>タグが見当たらない場合、
+                // プロキシが勝手にUTF-8に変換している可能性を考慮してUTF-8でも試行
+                if (!text.toLowerCase().includes('<html')) {
+                    text = new TextDecoder('utf-8').decode(buffer);
+                }
+                
                 if (text && text.toLowerCase().includes('<html')) return text;
             } catch (e) {
                 lastErr = e;
@@ -207,7 +212,7 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正
+            // パス修正（CSSや画像が壊れないように）
             doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
                 const href = link.getAttribute('href');
                 if (href) {
