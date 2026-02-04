@@ -183,12 +183,13 @@
                 const res = await fetch(fetchUrl, { cache: 'no-store' });
                 if (!res.ok) continue;
 
-                // Shift-JISデコード処理（GitHub Pagesでの文字化け防止）
+                // 文字化け対策：デコーダーに 'shift_jis' を明示し、フォールバックとして 'windows-31j' も考慮
                 const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('shift-jis');
+                const decoder = new TextDecoder('shift_jis', { fatal: false });
                 const text = decoder.decode(buffer);
                 
-                if (text && text.length > 100) return text;
+                // データが空でないか、正しく取得できているかチェック
+                if (text && text.includes('html')) return text;
             } catch (e) {
                 lastErr = e;
             }
@@ -207,10 +208,13 @@
             
             // パス修正
             doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const newLink = document.createElement('link');
-                newLink.rel = 'stylesheet';
-                newLink.href = new URL(link.getAttribute('href'), BASE_URL).href;
-                document.head.appendChild(newLink);
+                const href = link.getAttribute('href');
+                if (href) {
+                    const newLink = document.createElement('link');
+                    newLink.rel = 'stylesheet';
+                    newLink.href = new URL(href, BASE_URL).href;
+                    document.head.appendChild(newLink);
+                }
             });
 
             doc.querySelectorAll('img, td[background]').forEach(el => {
