@@ -149,7 +149,7 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // 文字化け回避のため、できるだけ「生データ」を維持するプロキシを使用
+    // プロキシ設定：文字化け回避のため、可能な限り「生データ」を取得するモードを指定
     const PROXIES = [
         { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'raw' }
     ];
@@ -172,6 +172,9 @@
         }
     }
 
+    /**
+     * 文字コードの判定とデコードを行う
+     */
     async function fetchHtml(url) {
         let lastErr;
         
@@ -181,21 +184,19 @@
                 const res = await fetch(fetchUrl);
                 if (!res.ok) continue;
 
-                // レスポンスをバイナリとして受け取る
                 const buffer = await res.arrayBuffer();
                 
-                // JR九州のサイトは Shift_JIS (正確には CP932 / Windows-31J)
-                // decoderを明示的に設定。fatal: falseにして、一部の不正文字で全体が壊れるのを防ぐ
-                const decoder = new TextDecoder('shift_jis', { fatal: false });
-                let text = decoder.decode(buffer);
-                
-                // もしShift_JISでデコードして<html>タグが見当たらない場合、
-                // プロキシが勝手にUTF-8に変換している可能性を考慮してUTF-8でも試行
-                if (!text.toLowerCase().includes('<html')) {
-                    text = new TextDecoder('utf-8').decode(buffer);
+                // 1. まずは Shift_JIS (Windows-31J) で試行
+                const sjisDecoder = new TextDecoder('windows-31j', { fatal: true });
+                try {
+                    const text = sjisDecoder.decode(buffer);
+                    if (text.toLowerCase().includes('<html')) return text;
+                } catch (e) {
+                    // 2. 失敗した場合は UTF-8 で試行（プロキシが勝手に変換した場合用）
+                    const utf8Decoder = new TextDecoder('utf-8');
+                    const text = utf8Decoder.decode(buffer);
+                    if (text.toLowerCase().includes('<html')) return text;
                 }
-                
-                if (text && text.toLowerCase().includes('<html')) return text;
             } catch (e) {
                 lastErr = e;
             }
@@ -212,7 +213,7 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正（CSSや画像が壊れないように）
+            // パス修正（CSS/画像）
             doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
                 const href = link.getAttribute('href');
                 if (href) {
@@ -230,6 +231,7 @@
                 if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + Date.now());
             });
 
+            // 列車番号の埋め込み
             const trains = doc.querySelectorAll('td[title]');
             trains.forEach(td => {
                 const trainNo = td.getAttribute('title');
@@ -264,10 +266,6 @@
             
             if (main) {
                 const cleanMain = main.cloneNode(true);
-                cleanMain.querySelectorAll('br').forEach(br => {
-                    if (br.parentElement.id === "contentsArea") br.remove();
-                });
-                
                 viewArea.innerHTML = '';
                 viewArea.appendChild(cleanMain);
                 
