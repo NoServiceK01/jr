@@ -183,13 +183,14 @@
                 const res = await fetch(fetchUrl, { cache: 'no-store' });
                 if (!res.ok) continue;
 
-                // 文字化け対策：デコーダーに 'shift_jis' を明示し、フォールバックとして 'windows-31j' も考慮
+                // 文字化け対策：一旦バイナリ（ArrayBuffer）として受け取り、
+                // 日本語Windowsの標準である CP932 (windows-31j) で明示的にデコードする
                 const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('shift_jis', { fatal: false });
+                const decoder = new TextDecoder('windows-31j');
                 const text = decoder.decode(buffer);
                 
-                // データが空でないか、正しく取得できているかチェック
-                if (text && text.includes('html')) return text;
+                // HTMLとして成立しているか最低限のチェック
+                if (text && text.toLowerCase().includes('<html')) return text;
             } catch (e) {
                 lastErr = e;
             }
