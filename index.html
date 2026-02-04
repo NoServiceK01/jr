@@ -3,191 +3,172 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車番号表示ボード</title>
+    <title>筑肥線 列車位置表示</title>
     <style>
-        /* 全体のスタイル */
-        html, body {
-            margin: 0;
-            padding: 0;
-            background-color: #f0f0f0;
-            height: 100vh;
-            width: 100vw;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-
-        #info-bar {
-            background: #e60012;
+        body, html {
+            margin: 0; padding: 0;
+            background-color: #333;
             color: white;
-            padding: 8px 15px;
-            font-size: 14px;
+            font-family: sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #header {
+            background: #e60012;
+            padding: 10px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
             font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            z-index: 10;
+            font-size: 14px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            z-index: 100;
+            position: relative;
         }
-
-        #outer-container {
-            flex: 1;
+        #container {
+            width: 100vw;
+            height: calc(100vh - 40px);
             overflow: auto;
             background: white;
-            display: flex; 
+            display: flex;
             justify-content: center;
             align-items: flex-start;
         }
-
-        #view-scale-wrapper {
+        #scaler {
             transform-origin: top center;
-            width: fit-content;
-        }
-
-        #view-area {
             padding: 20px;
         }
-
-        /* 列車番号ラベル */
-        .train-container {
+        /* 列車番号ラベルの装飾 */
+        .train-label {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 2px;
+            justify-content: center;
         }
-
-        .train-no-text {
-            color: #e60012;
-            font-size: 15px; 
+        .train-no {
+            background: #e60012;
+            color: white;
+            font-size: 15px;
             font-weight: bold;
-            background: rgba(255,255,255,0.9);
-            border: 1px solid #e60012;
-            border-radius: 3px;
-            padding: 0 2px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            margin-top: 2px;
+            border: 1px solid white;
+            line-height: 1;
         }
-
-        /* 公式のテーブルを維持 */
+        /* 公式のズレを補正 */
         table { border-collapse: collapse; margin: 0 auto; }
-        td { padding: 0 !important; position: relative; text-align: center; line-height: 0; }
+        td { padding: 0 !important; line-height: 0; position: relative; }
         img { display: block; max-width: none !important; }
 
-        #status-display {
+        #loading {
             position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
             background: rgba(0,0,0,0.8);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 30px;
-            font-size: 13px;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
         }
     </style>
 </head>
 <body>
 
-<div id="info-bar">
+<div id="header">
     <span>筑肥線 列車番号表示</span>
-    <span id="update-time">接続中...</span>
+    <span id="clock">接続中...</span>
 </div>
 
-<div id="outer-container">
-    <div id="status-display">データを読み込んでいます...</div>
-    <div id="view-scale-wrapper">
-        <div id="view-area"></div>
+<div id="loading">データを取得中...</div>
+
+<div id="container">
+    <div id="scaler">
+        <div id="board"></div>
     </div>
 </div>
 
 <script>
-    const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
-    const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
+    const TARGET = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
+    const ASSET_BASE = 'https://george-doredore.jrkyushu.co.jp/';
 
-    // 複数のプロキシを試す設定
-    const PROXY_URLS = [
-        (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-        (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`
-    ];
+    async function fetchData() {
+        const loader = document.getElementById('loading');
+        loader.style.display = 'block';
 
-    async function fetchWithRetry(url) {
-        for (let proxyFn of PROXY_URLS) {
-            try {
-                const response = await fetch(proxyFn(url + '?t=' + Date.now()));
-                if (response.ok) {
-                    const buffer = await response.arrayBuffer();
-                    return new TextDecoder('shift-jis').decode(buffer);
-                }
-            } catch (e) {
-                console.warn("Proxy failed, trying next...");
-            }
-        }
-        throw new Error("すべてのプロキシで失敗しました");
-    }
+        // プロキシサービスを利用（ブラウザの制限を回避）
+        const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(TARGET + '?t=' + Date.now())}`;
 
-    function updateScale() {
-        const wrapper = document.getElementById('view-scale-wrapper');
-        const area = document.getElementById('view-area');
-        const container = document.getElementById('outer-container');
-        if (!area || area.children.length === 0) return;
-        
-        const contentWidth = area.offsetWidth;
-        const containerWidth = container.clientWidth;
-        if (contentWidth > containerWidth) {
-            const scale = (containerWidth / contentWidth) * 0.95;
-            wrapper.style.transform = `scale(${scale})`;
-        } else {
-            wrapper.style.transform = `scale(1)`;
-        }
-    }
-
-    async function updateBoard() {
-        const status = document.getElementById('status-display');
         try {
-            const html = await fetchWithRetry(TARGET_URL);
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(html, 'text/html');
+            const response = await fetch(proxyUrl);
+            if (!response.ok) throw new Error('Network error');
+            
+            // Shift-JISの文字化け対策
+            const buffer = await response.arrayBuffer();
+            const decoder = new TextDecoder('shift-jis');
+            const htmlText = decoder.decode(buffer);
 
-            // 画像のパスをJR九州のサーバーに向ける
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlText, 'text/html');
+
+            // 画像と背景のパスを修正
             doc.querySelectorAll('[src], [background]').forEach(el => {
-                ['src', 'background'].forEach(attr => {
-                    const val = el.getAttribute(attr);
-                    if (val && !val.startsWith('http')) {
-                        el.setAttribute(attr, new URL(val, BASE_URL).href);
-                    }
-                });
+                const src = el.getAttribute('src');
+                const bg = el.getAttribute('background');
+                if (src && !src.startsWith('http')) el.src = ASSET_BASE + src;
+                if (bg && !bg.startsWith('http')) el.setAttribute('background', ASSET_BASE + bg);
             });
 
             // 列車番号の埋め込み
             doc.querySelectorAll('td[title]').forEach(td => {
-                const trainNo = td.getAttribute('title');
+                const title = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
-                if (trainNo && /\d/.test(trainNo) && bg.includes('image/M')) {
+                if (title && /\d/.test(title) && bg.includes('image/M')) {
                     const img = td.querySelector('img');
-                    td.innerHTML = `<div class="train-container">
-                        ${img ? img.outerHTML : ''}
-                        <span class="train-no-text">${trainNo}</span>
-                    </div>`;
+                    const imgHtml = img ? img.outerHTML : '';
+                    td.innerHTML = `
+                        <div class="train-label">
+                            ${imgHtml}
+                            <div class="train-no">${title}</div>
+                        </div>
+                    `;
                 }
             });
 
             const content = doc.getElementById('contentsArea');
             if (content) {
-                document.getElementById('view-area').innerHTML = content.innerHTML;
-                document.getElementById('update-time').innerText = "更新: " + new Date().toLocaleTimeString();
-                status.style.display = 'none';
-                setTimeout(updateScale, 500);
+                document.getElementById('board').innerHTML = content.innerHTML;
+                document.getElementById('clock').innerText = "最終更新: " + new Date().toLocaleTimeString();
+                loader.style.display = 'none';
+                autoScale();
             }
         } catch (err) {
-            status.innerText = "データ取得中... (再試行します)";
-            status.style.display = 'block';
+            console.error(err);
+            loader.innerText = "取得失敗。再試行します...";
+            setTimeout(fetchData, 5000);
+        }
+    }
+
+    function autoScale() {
+        const scaler = document.getElementById('scaler');
+        const board = document.getElementById('board');
+        const container = document.getElementById('container');
+        
+        const bWidth = board.offsetWidth;
+        const cWidth = container.clientWidth;
+        
+        if (bWidth > cWidth && cWidth > 0) {
+            const ratio = (cWidth / bWidth) * 0.95;
+            scaler.style.transform = `scale(${ratio})`;
+        } else {
+            scaler.style.transform = `scale(1)`;
         }
     }
 
     window.onload = () => {
-        updateBoard();
-        setInterval(updateBoard, 30000);
+        fetchData();
+        setInterval(fetchData, 40000); // 40秒ごとに更新
     };
-    window.addEventListener('resize', updateScale);
+    window.addEventListener('resize', autoScale);
 </script>
+
 </body>
 </html>
