@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="ja">
 <head>
     <meta charset="UTF-8">
     <title>筑肥線 列車位置表示</title>
     <style>
-        /* デザインをそのまま引用するため、余計な余白のみリセット */
+        /* 1. デザインをそのまま引用するため、余計な余白のみリセット */
         body, html {
             margin: 0;
             padding: 0;
@@ -12,25 +12,25 @@
             font-family: "MS PGothic", "Hiragino Kaku Gothic ProN", sans-serif;
         }
 
-        /* 列車番号ラベルのスタイル */
+        /* 2. 列車番号ラベルのスタイル */
         .train-no-overlay {
             position: absolute;
             background: rgba(230, 0, 18, 0.9);
             color: white;
-            padding: 1px 3px;
+            padding: 1px 4px;
             border-radius: 2px;
-            font-size: 11px;
+            font-size: 13px;
             font-family: sans-serif;
             font-weight: bold;
             pointer-events: none;
             transform: translate(-50%, -100%);
-            margin-top: -2px;
+            margin-top: -5px;
             white-space: nowrap;
             z-index: 1000;
             border: 1px solid white;
         }
 
-        /* 元サイトのテーブルレイアウトを維持するための強制設定 */
+        /* 3. テーブル構造と枠線の維持 */
         #doredore-content table {
             border-collapse: collapse !important;
             border-spacing: 0 !important;
@@ -41,6 +41,13 @@
             padding: 0 !important;
             line-height: 0 !important;
             position: relative;
+            text-align: center;
+        }
+
+        #doredore-content img {
+            display: block;
+            margin: 0 auto;
+            max-width: none !important;
         }
 
         /* 読み込み中の表示 */
@@ -61,60 +68,58 @@
 </head>
 <body>
 
-<div id="loading-screen">接続中...</div>
+<div id="loading-screen">読み込み中（文字化け修正処理）...</div>
 <div id="doredore-content"></div>
 
 <script>
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // バイナリで取得するためのプロキシ
+    // プロキシ: バイナリデータをそのまま通す raw API を使用
     const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
     async function loadBoard() {
         try {
             const res = await fetch(PROXY(TARGET_URL));
+            if (!res.ok) throw new Error("Fetch failed");
+
+            // ポイント: 文字化けを直すために一度バイナリとして受け取る
             const buffer = await res.arrayBuffer();
             
-            // Shift_JISを強制デコード（文字化け解消）
+            // ポイント: 強制的に Shift_JIS でデコードし、日本語を正しく復元する
             const decoder = new TextDecoder('shift_jis');
             const html = decoder.decode(buffer);
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
 
-            // 1. スタイルシートの絶対パス化（セルの線やサイズを直すために必須）
-            doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const href = link.getAttribute('href');
-                if (href && !href.startsWith('http')) {
-                    const newLink = document.createElement('link');
-                    newLink.rel = 'stylesheet';
-                    newLink.href = new URL(href, BASE_URL).href;
-                    document.head.appendChild(newLink);
-                }
+            // 1. 画像と背景URLの完全補完
+            // 全ての要素に対して src, href, background 属性を絶対パスに変換
+            doc.querySelectorAll('[src], [href], [background]').forEach(el => {
+                const attrs = ['src', 'href', 'background'];
+                attrs.forEach(attr => {
+                    const val = el.getAttribute(attr);
+                    if (val && !val.startsWith('http')) {
+                        try {
+                            el.setAttribute(attr, new URL(val, BASE_URL).href);
+                        } catch(e) {}
+                    }
+                });
             });
 
-            // 2. 画像と背景URLの修正
-            doc.querySelectorAll('[src], [background]').forEach(el => {
-                const src = el.getAttribute('src');
-                const bg = el.getAttribute('background');
-                if (src && !src.startsWith('http')) el.src = new URL(src, BASE_URL).href;
-                if (bg && !bg.startsWith('http')) el.setAttribute('background', new URL(bg, BASE_URL).href);
-            });
-
-            // 3. コンテンツの反映
+            // 2. コンテンツの描画
             const container = document.getElementById('doredore-content');
-            // 元サイトの「contentsArea」だけを抜くと崩れやすいため、body全体を一度解析
-            const officialContent = doc.getElementById('contentsArea') || doc.body;
-            container.innerHTML = officialContent.innerHTML;
+            // contentsAreaが存在すればそれ、なければbody全体を使用
+            const mainContent = doc.getElementById('contentsArea') || doc.body;
+            container.innerHTML = mainContent.innerHTML;
 
-            // 4. 列車番号の重畳表示
+            // 3. 列車番号の重畳表示
             const tds = container.querySelectorAll('td[title]');
             tds.forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
-                // 列車画像があるセルのみ処理
+                // 列車アイコン（Mが含まれる画像）があるセルのみ対象
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
                     const label = document.createElement('div');
                     label.className = 'train-no-overlay';
@@ -123,6 +128,7 @@
                     td.style.position = 'relative';
                     td.appendChild(label);
                     
+                    // セルの中央に配置
                     label.style.left = "50%";
                     label.style.top = "50%";
                 }
@@ -131,12 +137,14 @@
             document.getElementById('loading-screen').style.display = 'none';
 
         } catch (e) {
-            document.getElementById('loading-screen').innerText = "取得エラー。再試行中...";
+            document.getElementById('loading-screen').innerText = "接続エラー。再読み込みしてください。";
             console.error(e);
         }
     }
 
+    // 初回実行
     loadBoard();
+    // 30秒ごとに更新
     setInterval(loadBoard, 30000);
 </script>
 </body>
