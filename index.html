@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（文字化け完全対策版）</title>
+    <title>筑肥線 列車位置表示（高速更新・文字化け完全対策版）</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -114,7 +114,7 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（自動デコード）</span>
+    <span>筑肥線 列車位置情報（高速更新・自動デコード）</span>
     <span id="update-time">接続中...</span>
 </div>
 
@@ -129,7 +129,7 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // 文字化けを避けるため、JSON形式ではなく「生データ(raw)」として取得するプロキシを使用
+    // プロキシ設定：キャッシュを避けるためにタイムスタンプを付与
     const PROXIES = [
         { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}` }
     ];
@@ -155,13 +155,11 @@
     async function fetchHtml(url) {
         for (const proxy of PROXIES) {
             try {
-                const res = await fetch(proxy.url(url));
+                // cache: 'no-store' でブラウザのキャッシュを強制回避
+                const res = await fetch(proxy.url(url), { cache: 'no-store' });
                 if (!res.ok) continue;
 
-                // 【重要】ブラウザにテキストとして解釈させず、バイナリ(塊)として受け取る
                 const buffer = await res.arrayBuffer();
-                
-                // JR九州のShift_JIS（CP932）を強制的に適用してデコードする
                 const decoder = new TextDecoder('shift_jis');
                 const text = decoder.decode(buffer);
                 
@@ -173,7 +171,11 @@
         throw new Error("Failed to fetch data");
     }
 
+    let isUpdating = false;
     async function loadOfficialPage() {
+        if (isUpdating) return;
+        isUpdating = true;
+
         const statusEl = document.getElementById('status-display');
         const updateTimeEl = document.getElementById('update-time');
         
@@ -223,8 +225,8 @@
                 viewArea.innerHTML = '';
                 viewArea.appendChild(main);
                 updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                statusEl.style.display = 'none';
                 
-                // 画像読み込み後にサイズ調整
                 const imgs = viewArea.querySelectorAll('img');
                 let loaded = 0;
                 if (imgs.length === 0) updateScale();
@@ -232,16 +234,28 @@
                     img.onload = () => { loaded++; if (loaded === imgs.length) updateScale(); };
                     if (img.complete) img.onload();
                 });
-                setTimeout(updateScale, 500);
+                setTimeout(updateScale, 300);
             }
         } catch (error) {
             statusEl.innerText = "再接続中...";
             statusEl.style.display = 'block';
+        } finally {
+            isUpdating = false;
         }
     }
 
+    // 初回読み込み
     loadOfficialPage();
-    setInterval(loadOfficialPage, 30000);
+
+    // 更新間隔を30秒から10秒に短縮
+    setInterval(loadOfficialPage, 10000);
+
+    // 【追加】タブに戻った瞬間に更新する機能
+    window.addEventListener('focus', () => {
+        console.log("Tab focused: Fetching latest data...");
+        loadOfficialPage();
+    });
+
     window.addEventListener('resize', updateScale);
 </script>
 
