@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（デザイン再現版）</title>
+    <title>筑肥線 列車位置表示（完全修正版）</title>
     <style>
         /* 全体のレイアウト設定 */
         html, body {
@@ -55,22 +55,35 @@
             margin: 0;
         }
 
-        /* 列車番号のラベルスタイル（公式のデザインを邪魔しない） */
+        /* 列車番号ラベル（デザインを壊さない絶対配置） */
         .train-no-label {
-            display: block;
-            color: #e60012;
-            font-size: 13px;
+            position: absolute;
+            background: #e60012;
+            color: white;
+            padding: 1px 4px;
+            border-radius: 3px;
+            font-size: 12px;
             font-weight: bold;
-            line-height: 1;
-            margin-top: 2px;
-            text-align: center;
-            background: rgba(255, 255, 255, 0.8);
-            border: 1px solid #e60012;
-            border-radius: 2px;
-            padding: 1px 2px;
+            white-space: nowrap;
+            z-index: 100;
+            pointer-events: none;
+            box-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+            left: 50%;
+            bottom: -5px;
+            transform: translateX(-50%);
         }
 
-        /* 公式サイトの不要な要素を隠す */
+        /* 公式のテーブルスタイルを保護 */
+        #view-area table {
+            border-collapse: collapse !important;
+            border-spacing: 0 !important;
+        }
+        
+        #view-area td {
+            position: relative !important; /* ラベルの基準点 */
+        }
+
+        /* 不要要素の削除 */
         #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy, #shinkansen_link {
             display: none !important;
         }
@@ -93,8 +106,8 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（デザイン再現・文字化け対策済）</span>
-    <span id="update-time">読み込み中...</span>
+    <span>筑肥線 列車位置情報（安定版）</span>
+    <span id="update-time">同期中...</span>
 </div>
 
 <div id="outer-container">
@@ -108,24 +121,39 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // プロキシ設定
+    // 文字化け対策のため raw データを優先
     const PROXIES = [
         (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`,
         (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?t=' + Date.now())}`
     ];
 
+    // 文字化けを完全に防ぐデコーダー
+    async function getShiftJisText(response) {
+        const blob = await response.blob();
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsText(blob, 'Shift_JIS');
+        });
+    }
+
     async function fetchHtml(url) {
         for (const getUrl of PROXIES) {
             try {
-                const res = await fetch(getUrl(url), { cache: 'no-store' });
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 7000); // 7秒でタイムアウト
+
+                const res = await fetch(getUrl(url), { signal: controller.signal, cache: 'no-store' });
+                clearTimeout(timeoutId);
+                
                 if (!res.ok) continue;
-                const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('shift_jis');
-                const text = decoder.decode(buffer);
+                const text = await getShiftJisText(res);
                 if (text.toLowerCase().includes('<html')) return text;
-            } catch (e) {}
+            } catch (e) {
+                console.warn("Proxy failed, next...");
+            }
         }
-        throw new Error("Fetch failed");
+        throw new Error("All proxies failed");
     }
 
     let isUpdating = false;
@@ -141,36 +169,26 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // 全ての相対パスを絶対パスに変換（画像・CSS・背景）
-            const fixPath = (attr) => {
-                doc.querySelectorAll(`[${attr}]`).forEach(el => {
+            // パス修正
+            doc.querySelectorAll('[src], [href], [background]').forEach(el => {
+                ['src', 'href', 'background'].forEach(attr => {
                     const val = el.getAttribute(attr);
-                    if (val && !val.startsWith('http') && !val.startsWith('data:')) {
+                    if (val && !val.startsWith('http')) {
                         el.setAttribute(attr, new URL(val, BASE_URL).href);
                     }
                 });
-            };
-            ['src', 'href', 'background'].forEach(fixPath);
+            });
 
-            // 列車番号の注入（デザインを崩さないように調整）
+            // 列車番号の注入（既存のデザインを壊さない絶対配置）
             doc.querySelectorAll('td[title]').forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
-                // 列車アイコン（image/M）があるセルのみ対象
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
-                    // 既存のコンテンツ（アイコン画像など）を維持しつつ、番号を追加
                     const label = doc.createElement('div');
                     label.className = 'train-no-label';
                     label.innerText = trainNo;
                     td.appendChild(label);
-                    
-                    // セルのスタイル調整（中身を縦に並べる）
-                    td.style.display = "flex";
-                    td.style.flexDirection = "column";
-                    td.style.alignItems = "center";
-                    td.style.justifyContent = "center";
-                    td.style.height = "100%";
                 }
             });
 
@@ -184,19 +202,16 @@
                 statusEl.style.display = 'none';
             }
         } catch (error) {
-            statusEl.innerText = "接続待機中...";
+            statusEl.innerText = "データ再取得中...";
             statusEl.style.display = 'block';
         } finally {
             isUpdating = false;
         }
     }
 
-    // 初回実行
     loadOfficialPage();
-    // 10秒おきに自動更新
-    setInterval(loadOfficialPage, 10000);
+    setInterval(loadOfficialPage, 10000); // 10秒間隔
 
-    // タブに戻った時に即更新
     window.addEventListener('focus', () => {
         setTimeout(loadOfficialPage, 200);
     });
