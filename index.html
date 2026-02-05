@@ -38,7 +38,7 @@
 </head>
 <body>
 
-<div id="loading-screen">読み込み中（文字化け・デザイン修復中）...</div>
+<div id="loading-screen">読み込み中（文字化け・レイアウト調整中）...</div>
 <iframe id="main-frame" sandbox="allow-same-origin allow-scripts"></iframe>
 
 <script>
@@ -55,81 +55,89 @@
             const decoder = new TextDecoder('shift_jis');
             const rawHtml = decoder.decode(buffer);
 
-            const parser = new DOMParser();
-            const doc = parser.parseFromString(rawHtml, 'text/html');
-
-            // 1. 全ての相対パスを絶対パスに書き換え（デザイン崩れ防止の核心）
-            const fixPath = (attr) => {
-                doc.querySelectorAll(`[${attr}]`).forEach(el => {
-                    const val = el.getAttribute(attr);
-                    if (val && !val.startsWith('http') && !val.startsWith('data:')) {
-                        try {
-                            el.setAttribute(attr, new URL(val, BASE_URL).href);
-                        } catch(e) {}
-                    }
-                });
-            };
-            ['src', 'href', 'background', 'action'].forEach(fixPath);
-
-            // 2. 列車番号注入用スクリプトの準備
+            // 1. 列車番号を定刻（テキスト）の下に埋め込むためのスクリプト
             const injectorScript = `
                 <style>
-                    .train-no-label {
-                        position: absolute;
-                        background: rgba(230, 0, 18, 0.95);
-                        color: white !important;
-                        padding: 1px 4px;
-                        border-radius: 2px;
-                        font-size: 12px !important;
-                        font-family: sans-serif !important;
-                        font-weight: bold !important;
-                        pointer-events: none;
-                        transform: translate(-50%, -100%);
-                        margin-top: -4px;
-                        white-space: nowrap;
-                        z-index: 9999;
-                        border: 1px solid white;
-                        line-height: 1.2 !important;
-                    }
                     /* テーブル構造の強制維持 */
                     table { border-collapse: collapse !important; border-spacing: 0 !important; }
-                    td { position: relative !important; padding: 0 !important; }
+                    td { position: relative !important; padding: 0 !important; text-align: center !important; vertical-align: middle !important; }
+                    
+                    /* 列車番号のスタイル（定刻の下に表示） */
+                    .train-no-box {
+                        display: block;
+                        color: #e60012 !important;
+                        font-size: 13px !important;
+                        font-family: "Helvetica Neue", Arial, sans-serif !important;
+                        font-weight: bold !important;
+                        line-height: 1.2 !important;
+                        margin: 2px 0;
+                        padding: 0;
+                    }
+
+                    /* 列車アイコンの調整 */
+                    td img {
+                        display: block !important;
+                        margin: 0 auto !important;
+                    }
                 </style>
                 <script>
                     function inject() {
                         document.querySelectorAll('td[title]').forEach(td => {
                             const no = td.getAttribute('title');
                             const bg = td.getAttribute('background') || "";
+                            
+                            // 列車アイコンがあるセルを特定
                             if (no && /\\d/.test(no) && !no.includes('KUKAN') && bg.includes('image/M')) {
-                                if (!td.querySelector('.train-no-label')) {
-                                    const label = document.createElement('div');
-                                    label.className = 'train-no-label';
-                                    label.innerText = no;
-                                    td.style.position = 'relative';
-                                    td.appendChild(label);
-                                    label.style.left = "50%";
-                                    label.style.top = "50%";
+                                if (!td.querySelector('.train-no-box')) {
+                                    const img = td.querySelector('img');
+                                    const originalText = td.innerText.trim();
+                                    
+                                    // セルの中身を再構築: [元のテキスト(定刻)] -> [列車番号] -> [列車画像]
+                                    // デザインを崩さないよう、既存の要素を整理
+                                    const container = document.createElement('div');
+                                    container.style.display = "flex";
+                                    container.style.flexDirection = "column";
+                                    container.style.alignItems = "center";
+                                    container.style.justifyContent = "center";
+
+                                    // 1. 定刻などのテキスト
+                                    if (originalText && originalText !== no) {
+                                        const textSpan = document.createElement('span');
+                                        textSpan.innerText = originalText;
+                                        textSpan.style.fontSize = "12px";
+                                        container.appendChild(textSpan);
+                                    }
+
+                                    // 2. 列車番号
+                                    const noSpan = document.createElement('span');
+                                    noSpan.className = 'train-no-box';
+                                    noSpan.innerText = no;
+                                    container.appendChild(noSpan);
+
+                                    // 3. 列車画像
+                                    if (img) {
+                                        container.appendChild(img.cloneNode(true));
+                                    }
+
+                                    td.innerHTML = '';
+                                    td.appendChild(container);
                                 }
                             }
                         });
                     }
                     window.onload = inject;
+                    // 動的な変化に対応するため定期実行
                     setInterval(inject, 2000);
                 <\/script>
             `;
 
-            // 3. 修正したHTMLを構築
-            const headExtra = `
-                <base href="${BASE_URL}">
-                ${injectorScript}
-            `;
+            // 2. 修正したHTMLを構築（全てのパスを絶対URLへ）
             const finalHtml = rawHtml
-                .replace('<head>', '<head>' + headExtra)
-                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : `src="${new URL(p1, BASE_URL).href}"`)
-                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : `background="${new URL(p1, BASE_URL).href}"`)
-                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : `href="${new URL(p1, BASE_URL).href}"`);
+                .replace('<head>', '<head><base href="' + BASE_URL + '">' + injectorScript)
+                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
+                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`)
+                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`href="\${new URL(p1, BASE_URL).href}"\`);
 
-            // 4. iframeに流し込む（これが一番文字化けしない）
             const iframe = document.getElementById('main-frame');
             iframe.srcdoc = finalHtml;
 
@@ -144,7 +152,6 @@
     }
 
     loadBoard();
-    // 30秒ごとに全体を更新
     setInterval(loadBoard, 30000);
 </script>
 </body>
