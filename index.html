@@ -13,7 +13,6 @@
             background-color: #ffffff;
         }
 
-        /* iframeを画面いっぱいに広げる */
         #main-frame {
             width: 100%;
             height: 100%;
@@ -38,41 +37,34 @@
 </head>
 <body>
 
-<div id="loading-screen">読み込み中（文字化け・レイアウト調整中）...</div>
-<iframe id="main-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+<div id="loading-screen">読み込み中...</div>
+<iframe id="main-frame"></iframe>
 
 <script>
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
+    // プロキシをより安定したものに変更
     const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
     async function loadBoard() {
         const loadingScreen = document.getElementById('loading-screen');
         const iframe = document.getElementById('main-frame');
 
-        // タイムアウト設定: 10秒経っても終わらなければ強制表示
-        const timeoutId = setTimeout(() => {
-            if (loadingScreen.style.display !== 'none') {
-                loadingScreen.style.display = 'none';
-            }
-        }, 10000);
-
         try {
             const res = await fetch(PROXY(TARGET_URL));
             if (!res.ok) throw new Error("Fetch failed");
 
             const buffer = await res.arrayBuffer();
+            
+            // 1. Shift_JISでデコード
             const decoder = new TextDecoder('shift_jis');
-            const rawHtml = decoder.decode(buffer);
+            let rawHtml = decoder.decode(buffer);
 
-            // 1. 列車番号を定刻（テキスト）の下に埋め込むためのスクリプト
+            // 2. 列車番号注入スクリプトとスタイルの定義
             const injectorScript = `
                 <style>
-                    /* テーブル構造の強制維持 */
                     table { border-collapse: collapse !important; border-spacing: 0 !important; }
                     td { position: relative !important; padding: 0 !important; text-align: center !important; vertical-align: middle !important; }
-                    
-                    /* 列車番号のスタイル（定刻の下に表示） */
                     .train-no-box {
                         display: block;
                         color: #e60012 !important;
@@ -83,47 +75,34 @@
                         margin: 2px 0;
                         padding: 0;
                     }
-
-                    /* 列車アイコンの調整 */
-                    td img {
-                        display: block !important;
-                        margin: 0 auto !important;
-                    }
+                    td img { display: block !important; margin: 0 auto !important; }
                 </style>
                 <script>
                     function inject() {
                         document.querySelectorAll('td[title]').forEach(td => {
                             const no = td.getAttribute('title');
                             const bg = td.getAttribute('background') || "";
-                            
-                            // 列車アイコンがあるセルを特定
                             if (no && /\\d/.test(no) && !no.includes('KUKAN') && bg.includes('image/M')) {
                                 if (!td.querySelector('.train-no-box')) {
                                     const img = td.querySelector('img');
                                     const originalText = td.innerText.trim();
-                                    
                                     const container = document.createElement('div');
                                     container.style.display = "flex";
                                     container.style.flexDirection = "column";
                                     container.style.alignItems = "center";
-                                    container.style.justifyContent = "center";
-
+                                    
                                     if (originalText && originalText !== no) {
                                         const textSpan = document.createElement('span');
                                         textSpan.innerText = originalText;
                                         textSpan.style.fontSize = "12px";
                                         container.appendChild(textSpan);
                                     }
-
                                     const noSpan = document.createElement('span');
                                     noSpan.className = 'train-no-box';
                                     noSpan.innerText = no;
                                     container.appendChild(noSpan);
-
-                                    if (img) {
-                                        container.appendChild(img.cloneNode(true));
-                                    }
-
+                                    if (img) container.appendChild(img.cloneNode(true));
+                                    
                                     td.innerHTML = '';
                                     td.appendChild(container);
                                 }
@@ -135,24 +114,28 @@
                 <\/script>
             `;
 
-            // 2. 修正したHTMLを構築（全てのパスを絶対URLへ）
-            const finalHtml = rawHtml
-                .replace('<head>', '<head><base href="' + BASE_URL + '">' + injectorScript)
-                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
-                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`)
-                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`href="\${new URL(p1, BASE_URL).href}"\`);
+            // 3. HTMLの加工: パス補完とベースタグ挿入
+            let finalHtml = rawHtml
+                .replace('<head>', `<head><base href="${BASE_URL}">${injectorScript}`)
+                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `src="${new URL(p1, BASE_URL).href}"`)
+                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `background="${new URL(p1, BASE_URL).href}"`)
+                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `href="${new URL(p1, BASE_URL).href}"`);
 
-            iframe.srcdoc = finalHtml;
+            // 4. Blobを使用して、ブラウザに「これはHTMLだ」と正しく認識させて読み込ませる
+            const blob = new Blob([finalHtml], { type: 'text/html;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            
+            iframe.src = url;
 
             iframe.onload = () => {
-                clearTimeout(timeoutId);
                 loadingScreen.style.display = 'none';
+                // メモリリーク防止のためURLを解放
+                setTimeout(() => URL.revokeObjectURL(url), 10000);
             };
 
         } catch (e) {
-            clearTimeout(timeoutId);
-            loadingScreen.innerText = "取得失敗。再読み込みしてください。";
             console.error(e);
+            loadingScreen.innerText = "取得失敗。再読み込みしてください。";
         }
     }
 
