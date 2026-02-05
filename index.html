@@ -1,89 +1,118 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <!-- このファイル自体をShift_JISで保存することを前提としています -->
-    <meta charset="Shift_JIS">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（Shift_JIS版）</title>
+    <meta charset="UTF-8">
+    <title>筑肥線 列車位置表示</title>
     <style>
-        html, body {
+        /* デザインをそのまま引用するため、余計な余白のみリセット */
+        body, html {
             margin: 0;
             padding: 0;
-            background-color: #f0f0f0;
-            font-family: sans-serif;
-            overflow: hidden;
+            background-color: #ffffff;
         }
-        #info-bar {
-            background: #e60012;
+
+        /* 列車番号ラベルのスタイル（元のアイコンの上に重ねる） */
+        .train-no-overlay {
+            position: absolute;
+            background: rgba(230, 0, 18, 0.85);
             color: white;
-            padding: 8px 15px;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-family: sans-serif;
             font-weight: bold;
-            display: flex;
-            justify-content: space-between;
+            pointer-events: none;
+            transform: translate(-50%, -100%);
+            margin-top: -5px;
+            white-space: nowrap;
+            z-index: 1000;
         }
-        #view-area {
+
+        /* 読み込み中の表示 */
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             background: white;
-            padding: 10px;
-            overflow: auto;
-            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            font-size: 14px;
         }
-        .train-no {
-            color: #e60012;
-            font-weight: bold;
-            display: block;
-        }
-        /* 不要な公式パーツを消す */
-        #headerArea, .header_menu, #footerArea { display: none !important; }
     </style>
 </head>
 <body>
 
-<div id="info-bar">
-    <span>筑肥線 列車位置（Shift_JIS版）</span>
-    <span id="update-time">--:--:--</span>
-</div>
-
-<div id="view-area">
-    <div id="contents">読み込み中...</div>
-</div>
+<div id="loading-screen">接続中...</div>
+<div id="doredore-content"></div>
 
 <script>
-    const TARGET = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
-    const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`;
+    const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
+    const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
+    
+    // バイナリで取得するためのプロキシ
+    const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
-    async function update() {
+    async function loadBoard() {
         try {
-            const res = await fetch(PROXY(TARGET));
+            const res = await fetch(PROXY(TARGET_URL));
             const buffer = await res.arrayBuffer();
             
-            // ファイルがShift_JISなら、取得データもShift_JISとして扱うのが一番自然
+            // Shift_JISを強制デコードして文字化けを解消
             const decoder = new TextDecoder('shift_jis');
             const html = decoder.decode(buffer);
-            
+
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            
-            // 列車番号を表示する最小限の処理
-            doc.querySelectorAll('td[title]').forEach(td => {
-                const no = td.getAttribute('title');
-                if (no && /\d/.test(no) && td.getAttribute('background')?.includes('image/M')) {
-                    const img = td.querySelector('img');
-                    td.innerHTML = `<div>${img ? img.outerHTML : ''}<span class="train-no">${no}</span></div>`;
+
+            // 1. 画像URLの修正（デザインを壊さないために必須）
+            doc.querySelectorAll('[src], [background]').forEach(el => {
+                const src = el.getAttribute('src');
+                const bg = el.getAttribute('background');
+                if (src && !src.startsWith('http')) el.src = new URL(src, BASE_URL).href;
+                if (bg && !bg.startsWith('http')) el.setAttribute('background', new URL(bg, BASE_URL).href);
+            });
+
+            // 2. 列車番号の重畳表示
+            // 元のデザイン（td構造）をいじらず、座標計算で上に乗せる
+            const container = document.getElementById('doredore-content');
+            container.innerHTML = doc.body.innerHTML;
+
+            const tds = container.querySelectorAll('td[title]');
+            tds.forEach(td => {
+                const trainNo = td.getAttribute('title');
+                const bg = td.getAttribute('background') || "";
+                
+                if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
+                    const label = document.createElement('div');
+                    label.className = 'train-no-overlay';
+                    label.innerText = trainNo;
+                    
+                    // tdの中心位置に配置
+                    td.style.position = 'relative';
+                    td.appendChild(label);
+                    
+                    // 中央に配置するための調整
+                    label.style.left = "50%";
+                    label.style.top = "50%";
                 }
             });
 
-            const main = doc.getElementById('contentsArea');
-            if (main) {
-                document.getElementById('contents').innerHTML = main.innerHTML;
-                document.getElementById('update-time').innerText = new Date().toLocaleTimeString();
-            }
+            document.getElementById('loading-screen').style.display = 'none';
+
         } catch (e) {
-            console.error("更新失敗");
+            document.getElementById('loading-screen').innerText = "取得エラー。再試行中...";
+            console.error(e);
         }
     }
 
-    update();
-    setInterval(update, 15000);
+    // 初回実行
+    loadBoard();
+    // 30秒ごとに更新
+    setInterval(loadBoard, 30000);
 </script>
 </body>
 </html>
