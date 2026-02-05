@@ -5,25 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>筑肥線 列車位置表示（完全修正版）</title>
     <style>
-        /* 全体のレイアウト設定 */
+        /* 全体の余白リセット */
         html, body {
             margin: 0 !important;
             padding: 0 !important;
-            background-color: #ffffff;
+            background-color: #f0f0f0;
             height: 100vh;
             width: 100vw;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            font-family: "MS PGothic", "Hiragino Kaku Gothic ProN", sans-serif;
         }
 
-        /* 上部の赤いバー */
+        /* ヘッダーバー */
         #info-bar {
             background: #e60012;
             color: white;
-            padding: 8px 15px;
-            font-size: 14px;
+            padding: 6px 15px;
+            font-size: 13px;
+            font-family: sans-serif;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -34,58 +34,84 @@
             font-weight: bold;
         }
 
-        /* 描画エリア */
+        /* コンテンツ表示エリア（中央寄せ） */
         #outer-container {
             flex: 1;
             overflow: auto;
             position: relative;
             background: white;
             width: 100%;
+            display: flex; 
+            justify-content: center;
+            align-items: flex-start;
         }
 
+        /* スケーリングコンテナ */
         #view-scale-wrapper {
-            transform-origin: top left;
+            transform-origin: top center;
+            transition: transform 0.2s ease-out;
             width: fit-content;
             height: fit-content;
+            display: flex;
+            justify-content: center;
         }
 
         #view-area {
             position: relative;
+            width: fit-content;
+            margin: 0 auto;
+            padding: 10px;
+        }
+
+        /* 列車情報のスタイル（デザイン維持） */
+        .train-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            gap: 4px;
+        }
+
+        .train-no-text {
+            display: block;
+            color: #e60012;
+            font-size: 15px; 
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+            font-weight: normal;
+            line-height: 1.2;
+            margin: 0;
             padding: 0;
+            text-align: center;
+        }
+
+        .official-text {
+            font-size: 15px;
+            line-height: 1.2;
+            font-weight: normal;
+            color: #000;
             margin: 0;
         }
 
-        /* 列車番号ラベル（デザインを壊さない絶対配置） */
-        .train-no-label {
-            position: absolute;
-            background: #e60012;
-            color: white;
-            padding: 1px 4px;
-            border-radius: 3px;
-            font-size: 12px;
-            font-weight: bold;
-            white-space: nowrap;
-            z-index: 100;
-            pointer-events: none;
-            box-shadow: 1px 1px 3px rgba(0,0,0,0.5);
-            left: 50%;
-            bottom: -5px;
-            transform: translateX(-50%);
+        /* ズレ防止（公式のテーブル構造を維持） */
+        #view-area table { 
+            border-collapse: collapse !important; 
+            border-spacing: 0 !important; 
+            margin: 0 auto !important;
         }
-
-        /* 公式のテーブルスタイルを保護 */
-        #view-area table {
-            border-collapse: collapse !important;
-            border-spacing: 0 !important;
+        #view-area td { 
+            padding: 0 !important; 
+            position: relative; 
+            vertical-align: middle; 
+            text-align: center;
+            overflow: visible !important;
         }
-        
-        #view-area td {
-            position: relative !important; /* ラベルの基準点 */
-        }
-
-        /* 不要要素の削除 */
-        #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy, #shinkansen_link {
-            display: none !important;
+        #view-area img { 
+            display: block; 
+            margin: 0 auto; 
+            border: none;
+            max-width: none !important; 
         }
 
         #status-display {
@@ -93,7 +119,7 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.75);
             color: white;
             padding: 8px 16px;
             border-radius: 20px;
@@ -101,13 +127,15 @@
             font-size: 12px;
             display: none;
         }
+        
+        #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy { display: none !important; }
     </style>
 </head>
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（安定版）</span>
-    <span id="update-time">同期中...</span>
+    <span>筑肥線 列車位置情報（デザイン維持・文字化け修正版）</span>
+    <span id="update-time">接続中...</span>
 </div>
 
 <div id="outer-container">
@@ -121,46 +149,50 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // 文字化け対策のため raw データを優先
+    // プロキシを raw モード（生データ）に統一
     const PROXIES = [
         (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`,
-        (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?t=' + Date.now())}`
+        (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`
     ];
 
-    // 文字化けを完全に防ぐデコーダー
-    async function getShiftJisText(response) {
-        const blob = await response.blob();
-        return new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.readAsText(blob, 'Shift_JIS');
-        });
+    function updateScale() {
+        const wrapper = document.getElementById('view-scale-wrapper');
+        const area = document.getElementById('view-area');
+        const container = document.getElementById('outer-container');
+        if (!area || !wrapper || area.children.length === 0) return;
+        
+        const contentWidth = area.offsetWidth;
+        const containerWidth = container.clientWidth;
+        wrapper.style.width = contentWidth + "px";
+
+        if (contentWidth > containerWidth && containerWidth > 0) {
+            const scale = containerWidth / contentWidth;
+            wrapper.style.transform = `scale(${scale})`;
+        } else {
+            wrapper.style.transform = `scale(1)`;
+        }
     }
 
     async function fetchHtml(url) {
-        for (const getUrl of PROXIES) {
+        for (const getProxyUrl of PROXIES) {
             try {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 7000); // 7秒でタイムアウト
-
-                const res = await fetch(getUrl(url), { signal: controller.signal, cache: 'no-store' });
-                clearTimeout(timeoutId);
-                
+                const res = await fetch(getProxyUrl(url), { cache: 'no-store' });
                 if (!res.ok) continue;
-                const text = await getShiftJisText(res);
-                if (text.toLowerCase().includes('<html')) return text;
+
+                // 文字化け対策: レスポンスをArrayBufferで受け取り、自前でShift_JISデコードする
+                const buffer = await res.arrayBuffer();
+                const decoder = new TextDecoder('shift_jis');
+                const html = decoder.decode(buffer);
+                
+                if (html.toLowerCase().includes('<html')) return html;
             } catch (e) {
-                console.warn("Proxy failed, next...");
+                console.warn("Proxy attempt failed:", e);
             }
         }
-        throw new Error("All proxies failed");
+        throw new Error("Failed to fetch data from all proxies");
     }
 
-    let isUpdating = false;
     async function loadOfficialPage() {
-        if (isUpdating) return;
-        isUpdating = true;
-        
         const statusEl = document.getElementById('status-display');
         const updateTimeEl = document.getElementById('update-time');
         
@@ -169,52 +201,72 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正
-            doc.querySelectorAll('[src], [href], [background]').forEach(el => {
-                ['src', 'href', 'background'].forEach(attr => {
-                    const val = el.getAttribute(attr);
-                    if (val && !val.startsWith('http')) {
-                        el.setAttribute(attr, new URL(val, BASE_URL).href);
-                    }
-                });
+            // パス修正（背景画像やロゴ画像など）
+            doc.querySelectorAll('img, td[background]').forEach(el => {
+                const src = el.getAttribute('src');
+                const bg = el.getAttribute('background');
+                if (src && !src.startsWith('http')) el.src = new URL(src, BASE_URL).href;
+                if (bg && !bg.startsWith('http')) el.setAttribute('background', new URL(bg, BASE_URL).href);
             });
 
-            // 列車番号の注入（既存のデザインを壊さない絶対配置）
-            doc.querySelectorAll('td[title]').forEach(td => {
+            // 列車番号の注入ロジック（デザイン維持）
+            const trains = doc.querySelectorAll('td[title]');
+            trains.forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
-                    const label = doc.createElement('div');
-                    label.className = 'train-no-label';
-                    label.innerText = trainNo;
-                    td.appendChild(label);
+                    const img = td.querySelector('img');
+                    const text = td.innerText.trim();
+                    
+                    const container = doc.createElement('div');
+                    container.className = 'train-container';
+
+                    if (text && text !== trainNo) {
+                        const textBox = doc.createElement('div');
+                        textBox.className = 'official-text';
+                        textBox.innerText = text;
+                        container.appendChild(textBox);
+                    }
+                    if (img) container.appendChild(img);
+                    const noElement = doc.createElement('span');
+                    noElement.className = 'train-no-text';
+                    noElement.innerText = trainNo;
+                    container.appendChild(noElement);
+
+                    td.innerHTML = '';
+                    td.appendChild(container);
                 }
             });
 
             const main = doc.getElementById('contentsArea');
+            const viewArea = document.getElementById('view-area');
+            
             if (main) {
-                const viewArea = document.getElementById('view-area');
-                viewArea.innerHTML = '';
-                viewArea.appendChild(main);
+                // 不要な改行などを除去してクリーンアップ
+                const cleanMain = main.cloneNode(true);
+                cleanMain.querySelectorAll('br').forEach(br => {
+                    if (br.parentElement.id === "contentsArea") br.remove();
+                });
                 
-                updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                viewArea.innerHTML = '';
+                viewArea.appendChild(cleanMain);
+                
                 statusEl.style.display = 'none';
+                updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                
+                // 画像読み込み後にスケールを合わせる
+                setTimeout(updateScale, 500);
             }
         } catch (error) {
-            statusEl.innerText = "データ再取得中...";
+            statusEl.innerText = "データ取得待機中...";
             statusEl.style.display = 'block';
-        } finally {
-            isUpdating = false;
         }
     }
 
     loadOfficialPage();
-    setInterval(loadOfficialPage, 10000); // 10秒間隔
-
-    window.addEventListener('focus', () => {
-        setTimeout(loadOfficialPage, 200);
-    });
+    setInterval(loadOfficialPage, 30000);
+    window.addEventListener('resize', updateScale);
 </script>
 
 </body>
