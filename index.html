@@ -134,7 +134,7 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（デザイン維持・文字化け修正版）</span>
+    <span>筑肥線 列車位置情報（文字化け修正・デコード強化版）</span>
     <span id="update-time">接続中...</span>
 </div>
 
@@ -149,7 +149,11 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // プロキシを raw モード（生データ）に統一
+    /**
+     * 文字化け対策: 
+     * 1. allorigins の "raw" API を使い、プロキシによる自動テキスト変換を阻止
+     * 2. バイナリ(ArrayBuffer)として取得し、自前で Shift_JIS デコードする
+     */
     const PROXIES = [
         (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`,
         (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`
@@ -179,17 +183,20 @@
                 const res = await fetch(getProxyUrl(url), { cache: 'no-store' });
                 if (!res.ok) continue;
 
-                // 文字化け対策: レスポンスをArrayBufferで受け取り、自前でShift_JISデコードする
+                // 文字化け解消の鍵：ArrayBuffer で取得
                 const buffer = await res.arrayBuffer();
+                
+                // Shift_JIS (CP932) でデコード
                 const decoder = new TextDecoder('shift_jis');
                 const html = decoder.decode(buffer);
                 
+                // 正常なHTMLかチェック
                 if (html.toLowerCase().includes('<html')) return html;
             } catch (e) {
-                console.warn("Proxy attempt failed:", e);
+                console.warn("Proxy failed, trying next...", e);
             }
         }
-        throw new Error("Failed to fetch data from all proxies");
+        throw new Error("All proxies failed to fetch valid Shift_JIS data");
     }
 
     async function loadOfficialPage() {
@@ -259,6 +266,7 @@
                 setTimeout(updateScale, 500);
             }
         } catch (error) {
+            console.error(error);
             statusEl.innerText = "データ取得待機中...";
             statusEl.style.display = 'block';
         }
