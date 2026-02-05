@@ -47,6 +47,16 @@
     const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
     async function loadBoard() {
+        const loadingScreen = document.getElementById('loading-screen');
+        const iframe = document.getElementById('main-frame');
+
+        // タイムアウト設定: 10秒経っても終わらなければ強制表示
+        const timeoutId = setTimeout(() => {
+            if (loadingScreen.style.display !== 'none') {
+                loadingScreen.style.display = 'none';
+            }
+        }, 10000);
+
         try {
             const res = await fetch(PROXY(TARGET_URL));
             if (!res.ok) throw new Error("Fetch failed");
@@ -92,15 +102,12 @@
                                     const img = td.querySelector('img');
                                     const originalText = td.innerText.trim();
                                     
-                                    // セルの中身を再構築: [元のテキスト(定刻)] -> [列車番号] -> [列車画像]
-                                    // デザインを崩さないよう、既存の要素を整理
                                     const container = document.createElement('div');
                                     container.style.display = "flex";
                                     container.style.flexDirection = "column";
                                     container.style.alignItems = "center";
                                     container.style.justifyContent = "center";
 
-                                    // 1. 定刻などのテキスト
                                     if (originalText && originalText !== no) {
                                         const textSpan = document.createElement('span');
                                         textSpan.innerText = originalText;
@@ -108,13 +115,11 @@
                                         container.appendChild(textSpan);
                                     }
 
-                                    // 2. 列車番号
                                     const noSpan = document.createElement('span');
                                     noSpan.className = 'train-no-box';
                                     noSpan.innerText = no;
                                     container.appendChild(noSpan);
 
-                                    // 3. 列車画像
                                     if (img) {
                                         container.appendChild(img.cloneNode(true));
                                     }
@@ -126,7 +131,6 @@
                         });
                     }
                     window.onload = inject;
-                    // 動的な変化に対応するため定期実行
                     setInterval(inject, 2000);
                 <\/script>
             `;
@@ -134,19 +138,20 @@
             // 2. 修正したHTMLを構築（全てのパスを絶対URLへ）
             const finalHtml = rawHtml
                 .replace('<head>', '<head><base href="' + BASE_URL + '">' + injectorScript)
-                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
-                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`)
-                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`href="\${new URL(p1, BASE_URL).href}"\`);
+                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
+                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`)
+                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : \`href="\${new URL(p1, BASE_URL).href}"\`);
 
-            const iframe = document.getElementById('main-frame');
             iframe.srcdoc = finalHtml;
 
             iframe.onload = () => {
-                document.getElementById('loading-screen').style.display = 'none';
+                clearTimeout(timeoutId);
+                loadingScreen.style.display = 'none';
             };
 
         } catch (e) {
-            document.getElementById('loading-screen').innerText = "取得失敗。再読み込みしてください。";
+            clearTimeout(timeoutId);
+            loadingScreen.innerText = "取得失敗。再読み込みしてください。";
             console.error(e);
         }
     }
