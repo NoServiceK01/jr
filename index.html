@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（高速安定・文字化け完全対策版）</title>
+    <title>筑肥線 列車位置表示（文字コード自動認識版）</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -89,7 +89,7 @@
             color: #000;
         }
 
-        /* 構造維持 */
+        /* 構造維持（公式のズレを防止） */
         #view-area table { border-collapse: collapse !important; border-spacing: 0 !important; margin: 0 auto !important; }
         #view-area td { padding: 0 !important; position: relative; vertical-align: middle; text-align: center; }
         #view-area img { display: block; margin: 0 auto; border: none; max-width: none !important; }
@@ -114,7 +114,7 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（高速安定モード）</span>
+    <span>筑肥線 列車位置情報（安定接続・列番表示）</span>
     <span id="update-time">接続中...</span>
 </div>
 
@@ -129,7 +129,7 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // プロキシリストを増やし、タイムアウトを設定できるようにします
+    // プロキシ：文字化け回避に一番強い「raw」取得を指定
     const PROXIES = [
         (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`,
         (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?t=' + Date.now())}`
@@ -153,38 +153,31 @@
         }
     }
 
-    // タイムアウト付きフェッチ関数
-    async function fetchWithTimeout(url, timeout = 8000) {
-        const controller = new AbortController();
-        const id = setTimeout(() => controller.abort(), timeout);
-        try {
-            const response = await fetch(url, { signal: controller.signal, cache: 'no-store' });
-            clearTimeout(id);
-            return response;
-        } catch (e) {
-            clearTimeout(id);
-            throw e;
-        }
-    }
-
     async function fetchHtml(url) {
-        // 複数のプロキシを並行、または順次試す
         for (const getUrl of PROXIES) {
             try {
                 const proxyUrl = getUrl(url);
-                const res = await fetchWithTimeout(proxyUrl);
+                const res = await fetch(proxyUrl, { cache: 'no-store' });
                 if (!res.ok) continue;
 
                 const buffer = await res.arrayBuffer();
-                const decoder = new TextDecoder('shift_jis');
-                const text = decoder.decode(buffer);
                 
+                // Shift_JISでデコードを試みる
+                const decoder = new TextDecoder('shift_jis');
+                let text = decoder.decode(buffer);
+                
+                // 万が一文字化け（?だらけ）していた場合のセーフティ
+                if (text.includes('')) {
+                    const utf8Decoder = new TextDecoder('utf-8');
+                    text = utf8Decoder.decode(buffer);
+                }
+
                 if (text.toLowerCase().includes('<html')) return text;
             } catch (e) {
                 console.warn("Proxy attempt failed, trying next...");
             }
         }
-        throw new Error("Failed to fetch data from all proxies");
+        throw new Error("Failed to fetch data");
     }
 
     let isUpdating = false;
@@ -200,7 +193,7 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正
+            // パス修正（画像などが消えないように）
             doc.querySelectorAll('[src], [href], [background]').forEach(el => {
                 ['src', 'href', 'background'].forEach(attr => {
                     const val = el.getAttribute(attr);
@@ -240,7 +233,7 @@
                 const viewArea = document.getElementById('view-area');
                 viewArea.innerHTML = '';
                 viewArea.appendChild(main);
-                updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                updateTimeEl.innerText = "更新済: " + new Date().toLocaleTimeString();
                 statusEl.style.display = 'none';
                 
                 const imgs = viewArea.querySelectorAll('img');
@@ -253,22 +246,19 @@
                 setTimeout(updateScale, 300);
             }
         } catch (error) {
-            statusEl.innerText = "データ取得待ち...";
+            statusEl.innerText = "データ再取得中...";
             statusEl.style.display = 'block';
         } finally {
             isUpdating = false;
         }
     }
 
-    // 初回読み込み
     loadOfficialPage();
+    setInterval(loadOfficialPage, 10000); // 10秒更新
 
-    // 更新間隔
-    setInterval(loadOfficialPage, 10000);
-
-    // タブにフォーカスが戻った時の処理（少し待ってから実行して衝突を防ぐ）
+    // タブ復帰時のリフレッシュ
     window.addEventListener('focus', () => {
-        setTimeout(loadOfficialPage, 500);
+        setTimeout(loadOfficialPage, 300);
     });
 
     window.addEventListener('resize', updateScale);
