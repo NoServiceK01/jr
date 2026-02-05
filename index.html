@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（中央配置・構造維持）</title>
+    <title>筑肥線 列車位置表示（文字化け完全対策版）</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -34,7 +34,7 @@
             font-weight: bold;
         }
 
-        /* コンテンツ表示エリア（中央寄せ） */
+        /* コンテンツ表示エリア */
         #outer-container {
             flex: 1;
             overflow: auto;
@@ -46,7 +46,6 @@
             align-items: flex-start;
         }
 
-        /* スケーリングコンテナ */
         #view-scale-wrapper {
             transform-origin: top center;
             transition: transform 0.2s ease-out;
@@ -63,7 +62,6 @@
             padding: 10px;
         }
 
-        /* 列車情報のスタイル（15px・通常・行間4px） */
         .train-container {
             display: flex;
             flex-direction: column;
@@ -78,11 +76,9 @@
             display: block;
             color: #e60012;
             font-size: 15px; 
-            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
+            font-family: sans-serif;
             font-weight: normal;
             line-height: 1.2;
-            margin: 0;
-            padding: 0;
             text-align: center;
         }
 
@@ -91,35 +87,19 @@
             line-height: 1.2;
             font-weight: normal;
             color: #000;
-            margin: 0;
         }
 
-        /* ズレ防止（公式のテーブル構造を維持） */
-        #view-area table { 
-            border-collapse: collapse !important; 
-            border-spacing: 0 !important; 
-            margin: 0 auto !important;
-        }
-        #view-area td { 
-            padding: 0 !important; 
-            position: relative; 
-            vertical-align: middle; 
-            text-align: center;
-            overflow: visible !important;
-        }
-        #view-area img { 
-            display: block; 
-            margin: 0 auto; 
-            border: none;
-            max-width: none !important; 
-        }
+        /* 構造維持 */
+        #view-area table { border-collapse: collapse !important; border-spacing: 0 !important; margin: 0 auto !important; }
+        #view-area td { padding: 0 !important; position: relative; vertical-align: middle; text-align: center; }
+        #view-area img { display: block; margin: 0 auto; border: none; max-width: none !important; }
 
         #status-display {
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.75);
+            background: rgba(0,0,0,0.8);
             color: white;
             padding: 8px 16px;
             border-radius: 20px;
@@ -134,7 +114,7 @@
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（解析強化モード）</span>
+    <span>筑肥線 列車位置情報（自動デコード）</span>
     <span id="update-time">接続中...</span>
 </div>
 
@@ -149,9 +129,9 @@
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    // プロキシ設定：文字化け回避のため、可能な限り「生データ」を取得するモードを指定
+    // 文字化けを避けるため、JSON形式ではなく「生データ(raw)」として取得するプロキシを使用
     const PROXIES = [
-        { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'raw' }
+        { url: (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}` }
     ];
 
     function updateScale() {
@@ -172,36 +152,25 @@
         }
     }
 
-    /**
-     * 文字コードの判定とデコードを行う
-     */
     async function fetchHtml(url) {
-        let lastErr;
-        
         for (const proxy of PROXIES) {
             try {
-                const fetchUrl = proxy.url(url);
-                const res = await fetch(fetchUrl);
+                const res = await fetch(proxy.url(url));
                 if (!res.ok) continue;
 
+                // 【重要】ブラウザにテキストとして解釈させず、バイナリ(塊)として受け取る
                 const buffer = await res.arrayBuffer();
                 
-                // 1. まずは Shift_JIS (Windows-31J) で試行
-                const sjisDecoder = new TextDecoder('windows-31j', { fatal: true });
-                try {
-                    const text = sjisDecoder.decode(buffer);
-                    if (text.toLowerCase().includes('<html')) return text;
-                } catch (e) {
-                    // 2. 失敗した場合は UTF-8 で試行（プロキシが勝手に変換した場合用）
-                    const utf8Decoder = new TextDecoder('utf-8');
-                    const text = utf8Decoder.decode(buffer);
-                    if (text.toLowerCase().includes('<html')) return text;
-                }
+                // JR九州のShift_JIS（CP932）を強制的に適用してデコードする
+                const decoder = new TextDecoder('shift_jis');
+                const text = decoder.decode(buffer);
+                
+                if (text.toLowerCase().includes('<html')) return text;
             } catch (e) {
-                lastErr = e;
+                console.error("Fetch attempt failed", e);
             }
         }
-        throw lastErr || new Error("Failed to fetch");
+        throw new Error("Failed to fetch data");
     }
 
     async function loadOfficialPage() {
@@ -213,37 +182,25 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正（CSS/画像）
-            doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const href = link.getAttribute('href');
-                if (href) {
-                    const newLink = document.createElement('link');
-                    newLink.rel = 'stylesheet';
-                    newLink.href = new URL(href, BASE_URL).href;
-                    document.head.appendChild(newLink);
-                }
+            // 画像・CSSパス修正
+            doc.querySelectorAll('[src], [href], [background]').forEach(el => {
+                ['src', 'href', 'background'].forEach(attr => {
+                    const val = el.getAttribute(attr);
+                    if (val && !val.startsWith('http') && !val.startsWith('data:')) {
+                        try { el.setAttribute(attr, new URL(val, BASE_URL).href); } catch(e) {}
+                    }
+                });
             });
 
-            doc.querySelectorAll('img, td[background]').forEach(el => {
-                const src = el.getAttribute('src');
-                const bg = el.getAttribute('background');
-                if (src) el.src = new URL(src, BASE_URL).href + '?v=' + Date.now();
-                if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + Date.now());
-            });
-
-            // 列車番号の埋め込み
-            const trains = doc.querySelectorAll('td[title]');
-            trains.forEach(td => {
+            // 列車番号の表示
+            doc.querySelectorAll('td[title]').forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
-                
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
-                    
                     const container = document.createElement('div');
                     container.className = 'train-container';
-
                     if (text && text !== trainNo) {
                         const textBox = document.createElement('div');
                         textBox.className = 'official-text';
@@ -255,36 +212,30 @@
                     noElement.className = 'train-no-text';
                     noElement.innerText = trainNo;
                     container.appendChild(noElement);
-
                     td.innerHTML = '';
                     td.appendChild(container);
                 }
             });
 
             const main = doc.getElementById('contentsArea');
-            const viewArea = document.getElementById('view-area');
-            
             if (main) {
-                const cleanMain = main.cloneNode(true);
+                const viewArea = document.getElementById('view-area');
                 viewArea.innerHTML = '';
-                viewArea.appendChild(cleanMain);
-                
-                statusEl.style.display = 'none';
+                viewArea.appendChild(main);
                 updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
                 
+                // 画像読み込み後にサイズ調整
                 const imgs = viewArea.querySelectorAll('img');
                 let loaded = 0;
                 if (imgs.length === 0) updateScale();
                 imgs.forEach(img => {
                     img.onload = () => { loaded++; if (loaded === imgs.length) updateScale(); };
-                    img.onerror = () => { loaded++; if (loaded === imgs.length) updateScale(); };
                     if (img.complete) img.onload();
                 });
-                setTimeout(updateScale, 800);
+                setTimeout(updateScale, 500);
             }
         } catch (error) {
-            console.error("Update error:", error);
-            statusEl.innerText = "データ取得エラー。自動リトライ中...";
+            statusEl.innerText = "再接続中...";
             statusEl.style.display = 'block';
         }
     }
