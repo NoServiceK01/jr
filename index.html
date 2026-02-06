@@ -2,7 +2,8 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>筑肥線 列車位置表示</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>筑肥線 列車位置情報</title>
     <style>
         body, html {
             margin: 0;
@@ -11,133 +12,188 @@
             width: 100vw;
             overflow: hidden;
             background-color: #ffffff;
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", sans-serif;
         }
 
-        #main-frame {
-            width: 100%;
-            height: 100%;
-            border: none;
+        #info-bar {
+            background: #e60012;
+            color: white;
+            padding: 10px 15px;
+            font-size: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
 
-        #loading-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
+        #view-container {
             width: 100%;
-            height: 100%;
-            background: white;
+            height: calc(100vh - 40px);
+            overflow: auto;
             display: flex;
             justify-content: center;
+            align-items: flex-start;
+        }
+
+        #view-area {
+            padding: 10px;
+            transform-origin: top center;
+        }
+
+        /* 列車情報のレイアウト調整 */
+        .train-wrapper {
+            display: flex;
+            flex-direction: column;
             align-items: center;
-            z-index: 9999;
-            font-family: sans-serif;
+            justify-content: center;
+            gap: 2px;
+        }
+
+        .train-no-label {
+            color: #e60012;
             font-size: 14px;
+            font-weight: bold;
+            line-height: 1;
+            margin: 2px 0;
+        }
+
+        .arrival-text {
+            font-size: 12px;
+            color: #333;
+        }
+
+        /* 公式テーブルのスタイル維持 */
+        table { border-collapse: collapse !important; margin: 0 auto; }
+        td { padding: 0 !important; position: relative; text-align: center; }
+        img { display: block; margin: 0 auto; }
+
+        /* 不要な要素を隠す */
+        #headerArea, .header_menu, .spacer, #footerArea, .footer_copy { display: none !important; }
+
+        #loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255,255,255,0.9);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            z-index: 9999;
         }
     </style>
 </head>
 <body>
 
-<div id="loading-screen">文字化け修復中...</div>
-<iframe id="main-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+<div id="info-bar">
+    <span>筑肥線 列車位置（GAS連携版）</span>
+    <span id="update-time">読み込み中...</span>
+</div>
+
+<div id="loader">データを取得しています...</div>
+
+<div id="view-container">
+    <div id="view-area"></div>
+</div>
 
 <script>
+    /**
+     * 【重要】デプロイしたGASのURLをここに貼り付けてください
+     */
+    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxHQ54GliWlIkshLkCPXDV_OoLDdgSj8KKe-ry-BjBucg2Hc-meqztMkR_olZd0K3uUkA/exec';
+    
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
-    const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
-    async function loadBoard() {
-        const loadingScreen = document.getElementById('loading-screen');
-        const iframe = document.getElementById('main-frame');
+    async function updateBoard() {
+        if (!GAS_WEBAPP_URL || GAS_WEBAPP_URL.includes('YOUR_GAS')) {
+            document.getElementById('loader').innerText = 'GASのURLが設定されていません。';
+            return;
+        }
 
         try {
-            const res = await fetch(PROXY(TARGET_URL));
-            if (!res.ok) throw new Error("Fetch failed");
+            const fetchUrl = `${GAS_WEBAPP_URL}?url=${encodeURIComponent(TARGET_URL)}`;
+            const response = await fetch(fetchUrl);
+            const htmlText = await response.text();
 
-            // 1. バイナリとして取得
-            const buffer = await res.arrayBuffer();
-            
-            // 2. JavaScriptのTextDecoderで強制的にShift_JISからUnicode(UTF-8)へ変換
-            const decoder = new TextDecoder('shift_jis');
-            let decodedHtml = decoder.decode(buffer);
+            if (!htmlText || htmlText.includes("Error")) throw new Error("Fetch Error");
 
-            // 3. HTMLの中身にある「charset=shift_jis」という嘘の情報を「UTF-8」に書き換える
-            // これをしないと、ブラウザが気を利かせてまたShift_JISで読み直そうとして文字化けする
-            decodedHtml = decodedHtml.replace(/shift_jis/gi, 'UTF-8');
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(htmlText, 'text/html');
 
-            // 4. 列車番号を埋め込むスクリプトを準備
-            const injectorScript = `
-                <style>
-                    table { border-collapse: collapse !important; border-spacing: 0 !important; }
-                    td { position: relative !important; padding: 0 !important; text-align: center !important; vertical-align: middle !important; }
-                    .train-no-box {
-                        display: block;
-                        color: #e60012 !important;
-                        font-size: 13px !important;
-                        font-family: sans-serif !important;
-                        font-weight: bold !important;
-                        line-height: 1.2 !important;
-                        margin: 2px 0;
+            // 1. パスの補完（画像やCSS）
+            doc.querySelectorAll('[src], [background]').forEach(el => {
+                const src = el.getAttribute('src');
+                const bg = el.getAttribute('background');
+                if (src && !src.startsWith('http')) el.src = new URL(src, BASE_URL).href;
+                if (bg && !bg.startsWith('http')) el.setAttribute('background', new URL(bg, BASE_URL).href);
+            });
+
+            // 2. 列車番号の埋め込み（定刻の下、アイコンの上）
+            doc.querySelectorAll('td[title]').forEach(td => {
+                const trainNo = td.getAttribute('title');
+                const bg = td.getAttribute('background') || "";
+                
+                if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
+                    const img = td.querySelector('img');
+                    const originalText = td.innerText.trim();
+                    
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'train-wrapper';
+
+                    // 定刻などのテキスト
+                    if (originalText && originalText !== trainNo) {
+                        const txt = document.createElement('span');
+                        txt.className = 'arrival-text';
+                        txt.innerText = originalText;
+                        wrapper.appendChild(txt);
                     }
-                    td img { display: block !important; margin: 0 auto !important; }
-                </style>
-                <script>
-                    function inject() {
-                        document.querySelectorAll('td[title]').forEach(td => {
-                            const no = td.getAttribute('title');
-                            const bg = td.getAttribute('background') || "";
-                            if (no && /\\d/.test(no) && !no.includes('KUKAN') && bg.includes('image/M')) {
-                                if (!td.querySelector('.train-no-box')) {
-                                    const img = td.querySelector('img');
-                                    const originalText = td.innerText.trim();
-                                    const container = document.createElement('div');
-                                    container.style.display = "flex";
-                                    container.style.flexDirection = "column";
-                                    container.style.alignItems = "center";
-                                    
-                                    if (originalText && originalText !== no) {
-                                        const textSpan = document.createElement('span');
-                                        textSpan.innerText = originalText;
-                                        textSpan.style.fontSize = "12px";
-                                        container.appendChild(textSpan);
-                                    }
-                                    const noSpan = document.createElement('span');
-                                    noSpan.className = 'train-no-box';
-                                    noSpan.innerText = no;
-                                    container.appendChild(noSpan);
-                                    if (img) container.appendChild(img.cloneNode(true));
-                                    
-                                    td.innerHTML = '';
-                                    td.appendChild(container);
-                                }
-                            }
-                        });
-                    }
-                    window.onload = inject;
-                    setInterval(inject, 2000);
-                <\/script>
-            `;
 
-            // 5. パス補完とベースURL設定
-            const finalHtml = decodedHtml
-                .replace('<head>', `<head><base href="${BASE_URL}">${injectorScript}`)
-                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
-                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`);
+                    // 列車番号
+                    const no = document.createElement('span');
+                    no.className = 'train-no-label';
+                    no.innerText = trainNo;
+                    wrapper.appendChild(no);
 
-            // 6. iframeに直接流し込む
-            iframe.srcdoc = finalHtml;
+                    // 列車アイコン
+                    if (img) wrapper.appendChild(img.cloneNode(true));
 
-            iframe.onload = () => {
-                loadingScreen.style.display = 'none';
-            };
+                    td.innerHTML = '';
+                    td.appendChild(wrapper);
+                }
+            });
+
+            // 3. 画面への反映
+            const content = doc.getElementById('contentsArea');
+            if (content) {
+                document.getElementById('view-area').innerHTML = '';
+                document.getElementById('view-area').appendChild(content);
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('update-time').innerText = '更新: ' + new Date().toLocaleTimeString();
+            }
 
         } catch (e) {
             console.error(e);
-            loadingScreen.innerText = "読み込みエラー。再読み込みしてください。";
+            document.getElementById('loader').innerText = 'データの取得に失敗しました。再試行します。';
         }
     }
 
-    loadBoard();
-    setInterval(loadBoard, 30000); // 30秒更新
+    // 初回実行と30秒ごとの更新
+    updateBoard();
+    setInterval(updateBoard, 30000);
+
+    // 簡易的なレスポンシブ調整
+    window.addEventListener('resize', () => {
+        const vw = document.getElementById('view-container').clientWidth;
+        const aw = document.getElementById('view-area').scrollWidth;
+        if (aw > vw) {
+            const scale = vw / aw;
+            document.getElementById('view-area').style.transform = `scale(${scale})`;
+        } else {
+            document.getElementById('view-area').style.transform = `scale(1)`;
+        }
+    });
 </script>
 </body>
 </html>
