@@ -37,13 +37,12 @@
 </head>
 <body>
 
-<div id="loading-screen">読み込み中（文字化け解消処理実行中）...</div>
+<div id="loading-screen">文字化け修復中...</div>
 <iframe id="main-frame" sandbox="allow-same-origin allow-scripts"></iframe>
 
 <script>
     const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
-    // Proxy for raw binary data
     const PROXY = (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u + '?t=' + Date.now())}`;
 
     async function loadBoard() {
@@ -54,17 +53,18 @@
             const res = await fetch(PROXY(TARGET_URL));
             if (!res.ok) throw new Error("Fetch failed");
 
+            // 1. バイナリとして取得
             const buffer = await res.arrayBuffer();
             
-            // Step 1: Force decode binary to String using Shift_JIS
+            // 2. JavaScriptのTextDecoderで強制的にShift_JISからUnicode(UTF-8)へ変換
             const decoder = new TextDecoder('shift_jis');
-            let rawHtml = decoder.decode(buffer);
+            let decodedHtml = decoder.decode(buffer);
 
-            // Step 2: Critical fix for Mojibake - Remove or replace old meta tag inside the source
-            // This prevents the browser from trying to re-decode the already decoded string
-            rawHtml = rawHtml.replace(/<meta[^>]*charset=["']?shift_jis["']?[^>]*>/gi, '<meta charset="UTF-8">');
+            // 3. HTMLの中身にある「charset=shift_jis」という嘘の情報を「UTF-8」に書き換える
+            // これをしないと、ブラウザが気を利かせてまたShift_JISで読み直そうとして文字化けする
+            decodedHtml = decodedHtml.replace(/shift_jis/gi, 'UTF-8');
 
-            // Step 3: Injector Script and Style
+            // 4. 列車番号を埋め込むスクリプトを準備
             const injectorScript = `
                 <style>
                     table { border-collapse: collapse !important; border-spacing: 0 !important; }
@@ -73,11 +73,10 @@
                         display: block;
                         color: #e60012 !important;
                         font-size: 13px !important;
-                        font-family: "Helvetica Neue", Arial, sans-serif !important;
+                        font-family: sans-serif !important;
                         font-weight: bold !important;
                         line-height: 1.2 !important;
                         margin: 2px 0;
-                        padding: 0;
                     }
                     td img { display: block !important; margin: 0 auto !important; }
                 </style>
@@ -118,31 +117,27 @@
                 <\/script>
             `;
 
-            // Step 4: Final HTML Construction with Absolute Paths
-            let finalHtml = rawHtml
+            // 5. パス補完とベースURL設定
+            const finalHtml = decodedHtml
                 .replace('<head>', `<head><base href="${BASE_URL}">${injectorScript}`)
-                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `src="${new URL(p1, BASE_URL).href}"`)
-                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `background="${new URL(p1, BASE_URL).href}"`)
-                .replace(/href="([^"]+)"/g, (m, p1) => p1.startsWith('http') || p1.startsWith('data:') ? m : `href="${new URL(p1, BASE_URL).href}"`);
+                .replace(/src="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`src="\${new URL(p1, BASE_URL).href}"\`)
+                .replace(/background="([^"]+)"/g, (m, p1) => p1.startsWith('http') ? m : \`background="\${new URL(p1, BASE_URL).href}"\`);
 
-            // Step 5: Use srcdoc for guaranteed encoding inheritance from parent
+            // 6. iframeに直接流し込む
             iframe.srcdoc = finalHtml;
 
             iframe.onload = () => {
                 loadingScreen.style.display = 'none';
             };
 
-            // Safety timeout if onload doesn't fire
-            setTimeout(() => { loadingScreen.style.display = 'none'; }, 5000);
-
         } catch (e) {
             console.error(e);
-            loadingScreen.innerText = "取得失敗。再読み込みしてください。";
+            loadingScreen.innerText = "読み込みエラー。再読み込みしてください。";
         }
     }
 
     loadBoard();
-    setInterval(loadBoard, 30000);
+    setInterval(loadBoard, 30000); // 30秒更新
 </script>
 </body>
 </html>
