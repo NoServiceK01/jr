@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示（中央配置・構造維持）</title>
+    <title>JR九州 列車位置表示（指定路線）</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -21,20 +21,43 @@
         #info-bar {
             background: #e60012;
             color: white;
-            padding: 6px 15px;
+            padding: 8px 12px;
             font-size: 13px;
             font-family: sans-serif;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 5px;
             z-index: 2000;
             flex-shrink: 0;
             box-sizing: border-box;
             width: 100%;
             font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
 
-        /* コンテンツ表示エリア（中央寄せ） */
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            width: 100%;
+        }
+
+        /* 路線選択セレクトボックス */
+        #line-selector {
+            background: white;
+            color: #333;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 5px;
+            font-size: 14px;
+            font-weight: bold;
+            outline: none;
+            cursor: pointer;
+            width: 100%;
+            max-width: 500px;
+        }
+
+        /* コンテンツ表示エリア */
         #outer-container {
             flex: 1;
             overflow: auto;
@@ -63,7 +86,7 @@
             padding: 10px;
         }
 
-        /* 列車情報のスタイル（15px・通常・行間4px） */
+        /* 列車情報のスタイル */
         .train-container {
             display: flex;
             flex-direction: column;
@@ -71,30 +94,33 @@
             justify-content: center;
             width: 100%;
             height: 100%;
-            gap: 4px;
+            gap: 2px;
         }
 
         .train-no-text {
             display: block;
             color: #e60012;
-            font-size: 15px; 
-            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
-            font-weight: normal;
-            line-height: 1.2;
+            font-size: 13px; 
+            font-family: "Helvetica Neue", Arial, sans-serif;
+            font-weight: bold;
+            line-height: 1.1;
             margin: 0;
-            padding: 0;
+            padding: 1px 2px;
             text-align: center;
+            background: rgba(255, 255, 255, 0.85);
+            border-radius: 2px;
+            white-space: nowrap;
         }
 
         .official-text {
-            font-size: 15px;
-            line-height: 1.2;
+            font-size: 12px;
+            line-height: 1.1;
             font-weight: normal;
             color: #000;
             margin: 0;
         }
 
-        /* ズレ防止（公式のテーブル構造を維持） */
+        /* 構造維持のためのリセット */
         #view-area table { 
             border-collapse: collapse !important; 
             border-spacing: 0 !important; 
@@ -119,23 +145,54 @@
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.75);
+            background: rgba(0,0,0,0.85);
             color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
+            padding: 10px 20px;
+            border-radius: 25px;
             z-index: 3000;
-            font-size: 12px;
+            font-size: 13px;
             display: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4);
         }
         
-        #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy { display: none !important; }
+        /* 不要要素の非表示 */
+        #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy, #tabArea { display: none !important; }
     </style>
 </head>
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報（強制更新モード）</span>
-    <span id="update-time">接続中...</span>
+    <div class="header-top">
+        <span>JR九州 列車位置情報</span>
+        <span id="update-time">接続中...</span>
+    </div>
+    <select id="line-selector">
+        <optgroup label="新幹線">
+            <option value="jrqSEN29.html">九州新幹線</option>
+            <option value="jrqSEN57.html">西九州新幹線</option>
+        </optgroup>
+        <optgroup label="在来線（幹線）">
+            <option value="jrqSEN2.html">鹿児島本線（門司港～八代）</option>
+            <option value="jrqSEN51.html">鹿児島本線（川内～鹿児島）</option>
+            <option value="jrqSEN10.html">日豊本線</option>
+            <option value="jrqSEN5.html">長崎本線</option>
+            <option value="jrqSEN50.html">長崎本線（長与経由）</option>
+        </optgroup>
+        <optgroup label="在来線（各線）">
+            <option value="jrqSEN53.html">福北ゆたか線・若松線</option>
+            <option value="jrqSEN9.html" selected>筑肥線（下山門～西唐津）</option>
+            <option value="jrqSEN56.html">筑肥線（西唐津～伊万里）</option>
+            <option value="jrqSEN4.html">香椎線</option>
+            <option value="jrqSEN8.html">唐津線</option>
+            <option value="jrqSEN12.html">日田彦山線</option>
+            <option value="jrqSEN16.html">後藤寺線</option>
+            <option value="jrqSEN6.html">佐世保線</option>
+            <option value="jrqSEN55.html">久大本線</option>
+            <option value="jrqSEN17.html">豊肥本線</option>
+            <option value="jrqSEN54.html">宮崎空港線</option>
+            <option value="jrqSEN20.html">指宿枕崎線</option>
+        </optgroup>
+    </select>
 </div>
 
 <div id="outer-container">
@@ -146,13 +203,14 @@
 </div>
 
 <script>
-    const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
+    let currentLine = document.getElementById('line-selector').value;
     
+    // プロキシリスト（リトライとフォールバック用）
     const PROXIES = [
-        // キャッシュを避けるためにクエリパラメータを動的に生成
         { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'json' },
-        { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' }
+        { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' },
+        { url: (u) => `https://thingproxy.freeboard.io/fetch/${u}`, type: 'text' }
     ];
 
     function updateScale() {
@@ -175,12 +233,20 @@
 
     async function fetchHtml(url) {
         let lastErr;
-        // 毎回ランダムなプロキシから試行
         const shuffledProxies = [...PROXIES].sort(() => Math.random() - 0.5);
         
         for (const proxy of shuffledProxies) {
             try {
-                const res = await fetch(proxy.url(url), { cache: 'no-store' }); // ブラウザキャッシュも無効化
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                const res = await fetch(proxy.url(url), { 
+                    cache: 'no-store',
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
                 if (!res.ok) continue;
                 if (proxy.type === 'json') {
                     const data = await res.json();
@@ -198,22 +264,27 @@
     async function loadOfficialPage() {
         const statusEl = document.getElementById('status-display');
         const updateTimeEl = document.getElementById('update-time');
+        const targetUrl = BASE_URL + currentLine;
         
         try {
-            const htmlText = await fetchHtml(TARGET_URL);
+            const htmlText = await fetchHtml(targetUrl);
             if (!htmlText || htmlText.length < 100) throw new Error("Invalid data");
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正
+            // スタイルシート修正
             doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const newLink = document.createElement('link');
-                newLink.rel = 'stylesheet';
-                newLink.href = new URL(link.getAttribute('href'), BASE_URL).href;
-                document.head.appendChild(newLink);
+                const href = link.getAttribute('href');
+                if(href && !document.querySelector(`link[href*="${href}"]`)) {
+                    const newLink = document.createElement('link');
+                    newLink.rel = 'stylesheet';
+                    newLink.href = new URL(href, BASE_URL).href;
+                    document.head.appendChild(newLink);
+                }
             });
 
+            // 画像パス修正
             doc.querySelectorAll('img, td[background]').forEach(el => {
                 const src = el.getAttribute('src');
                 const bg = el.getAttribute('background');
@@ -221,12 +292,14 @@
                 if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + Date.now());
             });
 
+            // 列車情報インジェクト
             const trains = doc.querySelectorAll('td[title]');
             trains.forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
-                if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
+                // M... は在来線アイコン、SH... は新幹線アイコン用（念のため含む）
+                if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && (bg.includes('image/M') || bg.includes('image/SH'))) {
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
                     
@@ -240,6 +313,7 @@
                         container.appendChild(textBox);
                     }
                     if (img) container.appendChild(img);
+                    
                     const noElement = doc.createElement('span');
                     noElement.className = 'train-no-text';
                     noElement.innerText = trainNo;
@@ -263,9 +337,8 @@
                 viewArea.appendChild(cleanMain);
                 
                 statusEl.style.display = 'none';
-                updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                updateTimeEl.innerText = "更新: " + new Date().toLocaleTimeString();
                 
-                // 画像読み込み完了後のスケール調整
                 const imgs = viewArea.querySelectorAll('img');
                 let loaded = 0;
                 if (imgs.length === 0) updateScale();
@@ -274,17 +347,24 @@
                     img.onerror = () => { loaded++; if (loaded === imgs.length) updateScale(); };
                     if (img.complete) img.onload();
                 });
-                setTimeout(updateScale, 800);
+                setTimeout(updateScale, 1000);
             }
         } catch (error) {
             console.error("Update error:", error);
-            statusEl.innerText = "データ取得エラー。自動リトライ中...";
+            statusEl.innerText = "データ取得エラー。リトライ中...";
             statusEl.style.display = 'block';
+            setTimeout(loadOfficialPage, 15000);
         }
     }
 
+    document.getElementById('line-selector').addEventListener('change', (e) => {
+        currentLine = e.target.value;
+        const viewArea = document.getElementById('view-area');
+        viewArea.innerHTML = '<div style="text-align:center; padding:50px; font-family:sans-serif;">読み込み中...</div>';
+        loadOfficialPage();
+    });
+
     loadOfficialPage();
-    // 30秒ごとに短縮して更新チェック
     setInterval(loadOfficialPage, 30000);
     window.addEventListener('resize', updateScale);
 </script>
