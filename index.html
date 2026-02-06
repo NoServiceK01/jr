@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JR九州 列車位置表示（指定路線）</title>
+    <title>JR九州 列番表示</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -204,9 +204,10 @@
 
 <script>
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
-    let currentLine = document.getElementById('line-selector').value;
+    // 初期値の取得を改善
+    const lineSelector = document.getElementById('line-selector');
+    let currentLine = lineSelector.value;
     
-    // プロキシリスト（リトライとフォールバック用）
     const PROXIES = [
         { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'json' },
         { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' },
@@ -264,7 +265,10 @@
     async function loadOfficialPage() {
         const statusEl = document.getElementById('status-display');
         const updateTimeEl = document.getElementById('update-time');
-        const targetUrl = BASE_URL + currentLine;
+        
+        // 常に最新のセレクトボックスの値を参照するように修正
+        const activeLine = lineSelector.value;
+        const targetUrl = BASE_URL + activeLine;
         
         try {
             const htmlText = await fetchHtml(targetUrl);
@@ -273,7 +277,6 @@
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // スタイルシート修正
             doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
                 const href = link.getAttribute('href');
                 if(href && !document.querySelector(`link[href*="${href}"]`)) {
@@ -284,7 +287,6 @@
                 }
             });
 
-            // 画像パス修正
             doc.querySelectorAll('img, td[background]').forEach(el => {
                 const src = el.getAttribute('src');
                 const bg = el.getAttribute('background');
@@ -292,13 +294,11 @@
                 if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + Date.now());
             });
 
-            // 列車情報インジェクト
             const trains = doc.querySelectorAll('td[title]');
             trains.forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
-                // M... は在来線アイコン、SH... は新幹線アイコン用（念のため含む）
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && (bg.includes('image/M') || bg.includes('image/SH'))) {
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
@@ -357,7 +357,7 @@
         }
     }
 
-    document.getElementById('line-selector').addEventListener('change', (e) => {
+    lineSelector.addEventListener('change', (e) => {
         currentLine = e.target.value;
         const viewArea = document.getElementById('view-area');
         viewArea.innerHTML = '<div style="text-align:center; padding:50px; font-family:sans-serif;">読み込み中...</div>';
