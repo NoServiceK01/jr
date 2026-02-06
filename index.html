@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>筑肥線 列車位置表示</title>
+    <title>筑肥線 列車位置表示（GASプロキシ版）</title>
     <style>
         /* 全体の余白リセット */
         html, body {
@@ -15,15 +15,15 @@
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
         }
 
         /* ヘッダーバー */
         #info-bar {
             background: #e60012;
             color: white;
-            padding: 6px 15px;
+            padding: 8px 15px;
             font-size: 13px;
-            font-family: sans-serif;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -32,9 +32,10 @@
             box-sizing: border-box;
             width: 100%;
             font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
 
-        /* コンテンツ表示エリア（中央寄せ） */
+        /* コンテンツ表示エリア */
         #outer-container {
             flex: 1;
             overflow: auto;
@@ -49,11 +50,11 @@
         /* スケーリングコンテナ */
         #view-scale-wrapper {
             transform-origin: top center;
-            transition: transform 0.2s ease-out;
             width: fit-content;
             height: fit-content;
             display: flex;
             justify-content: center;
+            padding-bottom: 50px;
         }
 
         #view-area {
@@ -63,7 +64,7 @@
             padding: 10px;
         }
 
-        /* 列車情報のスタイル（15px・通常・行間4px） */
+        /* 列車情報のスタイル */
         .train-container {
             display: flex;
             flex-direction: column;
@@ -71,30 +72,32 @@
             justify-content: center;
             width: 100%;
             height: 100%;
-            gap: 4px;
+            gap: 2px;
         }
 
         .train-no-text {
             display: block;
             color: #e60012;
-            font-size: 15px; 
-            font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", sans-serif;
-            font-weight: normal;
-            line-height: 1.2;
+            font-size: 14px; 
+            font-weight: bold;
+            line-height: 1.1;
             margin: 0;
             padding: 0;
             text-align: center;
+            background: rgba(255,255,255,0.8);
+            border-radius: 2px;
         }
 
         .official-text {
-            font-size: 15px;
-            line-height: 1.2;
-            font-weight: normal;
+            font-size: 13px;
+            line-height: 1.1;
+            font-weight: bold;
             color: #000;
             margin: 0;
+            white-space: nowrap;
         }
 
-        /* ズレ防止（公式のテーブル構造を維持） */
+        /* テーブル構造維持 */
         #view-area table { 
             border-collapse: collapse !important; 
             border-spacing: 0 !important; 
@@ -114,28 +117,31 @@
             max-width: none !important; 
         }
 
+        /* ローディング・ステータス表示 */
         #status-display {
             position: fixed;
             bottom: 20px;
             left: 50%;
             transform: translateX(-50%);
-            background: rgba(0,0,0,0.75);
+            background: rgba(0,0,0,0.8);
             color: white;
-            padding: 8px 16px;
-            border-radius: 20px;
+            padding: 10px 20px;
+            border-radius: 30px;
             z-index: 3000;
             font-size: 12px;
             display: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
         
+        /* 不要な要素の非表示 */
         #headerArea, .header_menu, .spacer, #footerArea, hr, .footer_copy { display: none !important; }
     </style>
 </head>
 <body>
 
 <div id="info-bar">
-    <span>筑肥線 列車位置情報</span>
-    <span id="update-time">接続中...</span>
+    <span>筑肥線 列車位置（GAS高速通信）</span>
+    <span id="update-time">読み込み中...</span>
 </div>
 
 <div id="outer-container">
@@ -146,14 +152,12 @@
 </div>
 
 <script>
-    const TARGET_URL = 'https://george-doredore.jrkyushu.co.jp/jrqSEN9.html';
+    // --- 設定 ---
+    // Google Apps ScriptのウェブアプリURLを適用しました
+    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxmNUmssCcrhlQVNiyXyRS2SR9M3l1FGzJJv6f-tMNo_0pPzp95Ncd9tFIF4A-nsOpFNA/exec'; 
     const BASE_URL = 'https://george-doredore.jrkyushu.co.jp/';
     
-    const PROXIES = [
-        // キャッシュを避けるためにクエリパラメータを動的に生成
-        { url: (u) => `https://api.allorigins.win/get?url=${encodeURIComponent(u + '?t=' + Date.now())}`, type: 'json' },
-        { url: (u) => `https://corsproxy.io/?${encodeURIComponent(u + '?nocache=' + Math.random())}`, type: 'text' }
-    ];
+    let isFetching = false;
 
     function updateScale() {
         const wrapper = document.getElementById('view-scale-wrapper');
@@ -173,59 +177,42 @@
         }
     }
 
-    async function fetchHtml(url) {
-        let lastErr;
-        // 毎回ランダムなプロキシから試行
-        const shuffledProxies = [...PROXIES].sort(() => Math.random() - 0.5);
-        
-        for (const proxy of shuffledProxies) {
-            try {
-                const res = await fetch(proxy.url(url), { cache: 'no-store' }); // ブラウザキャッシュも無効化
-                if (!res.ok) continue;
-                if (proxy.type === 'json') {
-                    const data = await res.json();
-                    if (data.contents) return data.contents;
-                } else {
-                    return await res.text();
-                }
-            } catch (e) {
-                lastErr = e;
-            }
-        }
-        throw lastErr || new Error("Failed to fetch");
-    }
-
     async function loadOfficialPage() {
+        if (isFetching || !GAS_WEBAPP_URL) {
+            if(!GAS_WEBAPP_URL) showStatus("GASのURLを設定してください");
+            return;
+        }
+        
+        isFetching = true;
         const statusEl = document.getElementById('status-display');
         const updateTimeEl = document.getElementById('update-time');
         
         try {
-            const htmlText = await fetchHtml(TARGET_URL);
-            if (!htmlText || htmlText.length < 100) throw new Error("Invalid data");
+            // GAS経由でHTMLを取得（CORS回避 & 高速）
+            const response = await fetch(GAS_WEBAPP_URL);
+            const htmlText = await response.text();
+
+            if (!htmlText || htmlText.startsWith("Error")) throw new Error("取得失敗");
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(htmlText, 'text/html');
             
-            // パス修正
-            doc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const newLink = document.createElement('link');
-                newLink.rel = 'stylesheet';
-                newLink.href = new URL(link.getAttribute('href'), BASE_URL).href;
-                document.head.appendChild(newLink);
-            });
-
+            // 画像パスの絶対URL化（キャッシュ回避用クエリ付与）
+            const timestamp = Date.now();
             doc.querySelectorAll('img, td[background]').forEach(el => {
                 const src = el.getAttribute('src');
                 const bg = el.getAttribute('background');
-                if (src) el.src = new URL(src, BASE_URL).href + '?v=' + Date.now();
-                if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + Date.now());
+                if (src) el.src = new URL(src, BASE_URL).href + '?v=' + timestamp;
+                if (bg) el.setAttribute('background', new URL(bg, BASE_URL).href + '?v=' + timestamp);
             });
 
+            // 列車情報の加工
             const trains = doc.querySelectorAll('td[title]');
             trains.forEach(td => {
                 const trainNo = td.getAttribute('title');
                 const bg = td.getAttribute('background') || "";
                 
+                // 列車番号が存在し、背景が列車画像(M...)の場合のみ加工
                 if (trainNo && /\d/.test(trainNo) && !trainNo.includes('KUKAN') && bg.includes('image/M')) {
                     const img = td.querySelector('img');
                     const text = td.innerText.trim();
@@ -240,6 +227,7 @@
                         container.appendChild(textBox);
                     }
                     if (img) container.appendChild(img);
+                    
                     const noElement = doc.createElement('span');
                     noElement.className = 'train-no-text';
                     noElement.innerText = trainNo;
@@ -250,42 +238,60 @@
                 }
             });
 
+            // メインコンテンツの抽出と反映
             const main = doc.getElementById('contentsArea');
             const viewArea = document.getElementById('view-area');
             
             if (main) {
-                const cleanMain = main.cloneNode(true);
-                cleanMain.querySelectorAll('br').forEach(br => {
+                // 不要な改行の削除
+                main.querySelectorAll('br').forEach(br => {
                     if (br.parentElement.id === "contentsArea") br.remove();
                 });
                 
                 viewArea.innerHTML = '';
-                viewArea.appendChild(cleanMain);
+                viewArea.appendChild(main);
                 
                 statusEl.style.display = 'none';
-                updateTimeEl.innerText = "最終更新: " + new Date().toLocaleTimeString();
+                updateTimeEl.innerText = "更新: " + new Date().toLocaleTimeString();
                 
-                // 画像読み込み完了後のスケール調整
+                // 画像読み込み完了を待ってからスケール調整
                 const imgs = viewArea.querySelectorAll('img');
-                let loaded = 0;
-                if (imgs.length === 0) updateScale();
-                imgs.forEach(img => {
-                    img.onload = () => { loaded++; if (loaded === imgs.length) updateScale(); };
-                    img.onerror = () => { loaded++; if (loaded === imgs.length) updateScale(); };
-                    if (img.complete) img.onload();
-                });
-                setTimeout(updateScale, 800);
+                if (imgs.length === 0) {
+                    updateScale();
+                } else {
+                    let loadedCount = 0;
+                    imgs.forEach(img => {
+                        img.onload = img.onerror = () => {
+                            loadedCount++;
+                            if (loadedCount >= imgs.length) updateScale();
+                        };
+                        if (img.complete) img.onload();
+                    });
+                }
+                // 保険の遅延実行
+                setTimeout(updateScale, 500);
             }
         } catch (error) {
-            console.error("Update error:", error);
-            statusEl.innerText = "データ取得エラー。自動リトライ中...";
-            statusEl.style.display = 'block';
+            console.error("Fetch error:", error);
+            showStatus("接続エラー。再試行中...");
+        } finally {
+            isFetching = false;
         }
     }
 
+    function showStatus(msg) {
+        const statusEl = document.getElementById('status-display');
+        statusEl.innerText = msg;
+        statusEl.style.display = 'block';
+    }
+
+    // 初回実行
     loadOfficialPage();
-    // 30秒ごとに短縮して更新チェック
-    setInterval(loadOfficialPage, 30000);
+    
+    // 20秒ごとに自動更新
+    setInterval(loadOfficialPage, 20000);
+    
+    // リサイズ対応
     window.addEventListener('resize', updateScale);
 </script>
 
